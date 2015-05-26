@@ -12,5 +12,5 @@ It has been tested on Firefox, IE 10+, Safari, Chrome and Opera browser.
 
 ## License
 
-CTI Connector is licensed under the [MIT license](https://github.com/level7systems/cti-connector/raw/master/LICENSE.txt).
+CTI Connector is licensed under the [MIT license](https://github.com/level7systems/cti-connector/raw/master/LICENSE).
 

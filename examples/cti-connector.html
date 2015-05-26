@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta http-equiv="X-UA-Compatible" content="IE=Edge;chrome=1" />
+        <meta charset="UTF-8" />
+        <title>Cti Connector</title>
+        <style type="text/css">
+            .margin-bottom-15 {margin-bottom: 15px;}
+        </style>
+
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.4/css/bootstrap.min.css">
+    </head>
+    <body>
+
+        <div class="container">
+
+            <h2>CTI Connector - reference implementation
+                <button id="disconnect" type="button" style="display: none;" class="btn btn-danger pull-right">
+                    <span class="glyphicon glyphicon-log-out"></span> Disconnect
+                </button>
+            </h2>
+
+            <div class="row">
+                <p>Status: <span class="label label-default" id="status">Not connected</span></p>
+            </div>
+
+            <div class="row">
+                <form id="login-form"  class="form-inline">
+                    <input id="username" type="text" name="username" class="form-control" placeholder="E-mail address" />
+                    <input id="password" type="password" name="password" class="form-control" placeholder="Password" />
+                    <input id="connect" type="button" value="Connect" class="btn btn-success" />
+                </form>
+            </div>
+
+            <form id="outboundcall-form" style="display: none;" class="form-inline" >
+                <input id="phone_number" type="text" name="phone_number" class="form-control" placeholder="Phone number"/>
+                <button id="call-outbound" type="button" class="btn btn-success">
+                    <span class="glyphicon glyphicon-earphone" aria-hidden="true"></span> Outbound call
+                </button>
+            </form>
+
+            <form id="toolbar-form" style="display: none;" class="form-inline margin-bottom-15">
+                <button id="call-terminate" type="button" class="btn btn-danger">
+                    <span class="glyphicon glyphicon-remove-circle"></span> Terminate
+                </button>
+                <button id="call-transfer" type="button" class="btn btn-info">
+                    <span class="glyphicon glyphicon-arrow-right"></span> Transfer
+                </button>
+            </form>
+
+            <div class="row" id="transfer-table" style="display: none;">
+
+                <ul class="nav nav-tabs" id="transfer-tabs" role="tablist">
+                    <li class="active" role="presentation"><a href="#agents" role="tab" data-toggle="tab">Select transfer destination</a></li>
+                    <li role="presentation"><a href="#direct-dial" role="tab" data-toggle="tab">Direct dial</a></li>
+                </ul>
+                <div class="tab-content" id="transfer-tabs-content">
+                    <div id="agents" class="tab-pane active" role="tabpanel">
+                        <h4>Select transfer destination</h4>
+
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Extension / Phone number</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Test One</td>
+                                    <td>10032</td>
+                                    <td><a href="#" class="call-transfer-confirm btn btn-primary" call-extension="10032"><span class="glyphicon glyphicon-arrow-right"></span> Transfer</a></td>
+                                </tr>
+                                <tr>
+                                    <td>Test Two</td>
+                                    <td>10042</td>
+                                    <td><a href="#" class="call-transfer-confirm btn btn-primary" call-extension="10042"><span class="glyphicon glyphicon-arrow-right"></span> Transfer</a></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="direct-dial" class="tab-pane" role="tabpanel">
+                        <h4>Enter number</h4>
+                        <form id="transfer-direct-dial-form" class="form-inline" >
+                            <input id="call-transfer-direct-dial-phone-number" type="text" name="phone_number" class="form-control" />
+                            <button  id="call-transfer-direct-dial-confirm" type="button" class="btn btn-success">
+                                <span class="glyphicon glyphicon-arrow-right"></span> Transfer
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <button id="call-transfer-cancel" type="button" class="btn btn-danger">
+                    <span class="glyphicon glyphicon-remove"></span> Cancel
+                </button>
+
+            </div>
+
+        </div>
+
+        <script type="text/javascript" src="http://code.jquery.com/jquery-1.11.3.min.js"></script>
+        <script type="text/javascript" src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.4/js/bootstrap.min.js"></script>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/strophe.js/1.1.3/strophe.min.js"></script>
+        <script type="text/javascript" src="../cti-connector.js"></script>
+        <script type="text/javascript" src="js/cti-platform.js"></script>
+        <script type="text/javascript" src="js/scripts.js"></script>
+    </body>
+</html>

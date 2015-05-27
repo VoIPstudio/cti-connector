@@ -78,7 +78,7 @@ if (typeof Strophe != "undefined") {
 Cti.Connector = function (options) {
     this.connected = false;
 
-    this.apiLoginUrl = options.apiLoginUrl;
+    this.apiLoginUrl = "https://ssl7.net/voipstudio.com/u/api/login";
     // calbback
     this.callbacks = {
         onMessage: options.onMessage

@@ -11,7 +11,6 @@ Cti.Platform = function () {
             .addClass('label label-warning');
 
     connector = new Cti.Connector({
-        apiLoginUrl: "https://ssl7.net/voipstudio.com/u/api/login",
         // callback
         onMessage: this.onMessage
     });

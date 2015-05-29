@@ -229,6 +229,11 @@ Cti.Connector.prototype = {
                 this._sendErrorEvent("Extension number: " + destination + " has invalid format");
                 return;
             }
+            
+            if (this._getParam('xmpp_username') == destination) {
+                this._sendErrorEvent("You are unable to call to yourself.");
+                return;
+            }
         }
 
         var callId = this._uniqid(),
@@ -339,7 +344,7 @@ Cti.Connector.prototype = {
                 return;
             }
 
-            if (this._getParam('xmpp_username') == call.destination) {
+            if (this._getParam('xmpp_username') == destination) {
                 this._sendErrorEvent("You are unable to transfer call to yourself.");
                 return;
             }

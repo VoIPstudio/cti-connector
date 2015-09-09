@@ -923,6 +923,7 @@ Cti.Connector.prototype = {
     },
     // Call direction 
     _getCallDirection: function (call_data) {
+        
         if (!call_data.SrcId) {
             return Cti.DIRECTION.IN;
         }
@@ -931,7 +932,7 @@ Cti.Connector.prototype = {
             return Cti.DIRECTION.OUT;
         }
 
-        if (call_data.SrcId === this._getParam('xmpp_username')) {
+        if (call_data.SrcId == this._getParam('xmpp_username')) {
             return Cti.DIRECTION.OUT;
         }
 

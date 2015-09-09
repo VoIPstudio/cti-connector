@@ -13,6 +13,10 @@ CTI Connector allows for Computer Telephony Integration (CTI) of websites and/or
 4. Open examples/cti-connector.html in your web browser 
 5. Login with your VoIPstudio emial and password 
 6. Enter number you want to call
+
+
+## Example  
+Working reference implementation can be found at: http://repo.ssl7.net/cti-connector/examples/cti-connector.html
  
 ## Browser support
 

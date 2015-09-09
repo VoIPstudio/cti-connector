@@ -664,6 +664,7 @@ Cti.Connector.prototype = {
         var call = this._getCall(callId);
 
         // update call status
+        call.cid = call_data.Id;
         call.status = Cti.CALL_STATUS.CONNECTED;
         this._setCall(callId, call);
 

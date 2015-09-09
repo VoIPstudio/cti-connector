@@ -224,12 +224,7 @@ Cti.Connector.prototype = {
                 return;
             }
         } else {
-            // extension
-            if (!this._isExtensionValid(destination)) {
-                this._sendErrorEvent("Extension number: " + destination + " has invalid format");
-                return;
-            }
-            
+            // extension or spcial internal number
             if (this._getParam('xmpp_username') == destination) {
                 this._sendErrorEvent("You are unable to call to yourself.");
                 return;
@@ -638,6 +633,28 @@ Cti.Connector.prototype = {
         this._handleCallConnected(callId, call_data);
     },
     _handleOutboundCallConnected: function (callId, call_data) {
+        
+        if (!this._hasCall(callId)) {
+            // for this context calls start with CONNECTED status
+            var special_contexts = ['IVR', 'TEST_CALL', 'CONF', 'VM', 'VM_MAIN', 'PICKUP_PARKED'];
+            if (special_contexts.indexOf(call_data.Context) >= 0) {
+                
+                var call = {
+                    id: callId,
+                    cid: call_data.Id,
+                    cause: "",
+                    status: Cti.CALL_STATUS.CONNECTED,
+                    direction: Cti.DIRECTION.OUT,
+                    destination: call_data.Dst,
+                    destinationName: call_data.DstName,
+                    source: call_data.Src,
+                    sourceName: call_data.SrcName
+                };
+
+                this._setCall(callId, call);
+            }
+        }
+        
         this._handleCallConnected(callId, call_data);
     },
     _handleCallConnected: function (callId, call_data) {
@@ -717,6 +734,27 @@ Cti.Connector.prototype = {
         this._handleCallOnHold(callId, call_data);
     },
     _handleOutboundCallOnHold: function (callId, call_data) {
+        
+        if (!this._hasCall(callId)) {
+            // for this context calls start with ON_HOLD status
+            if (call_data.Context == 'Queue') {
+                
+                var call = {
+                    id: callId,
+                    cid: call_data.Id,
+                    cause: "",
+                    status: Cti.CALL_STATUS.ON_HOLD,
+                    direction: Cti.DIRECTION.OUT,
+                    destination: call_data.Dst,
+                    destinationName: call_data.DstName,
+                    source: call_data.Src,
+                    sourceName: call_data.SrcName
+                };
+
+                this._setCall(callId, call);
+            }
+        }
+        
         this._handleCallOnHold(callId, call_data);
     },
     _handleCallOnHold: function (callId, call_data) {

@@ -16,7 +16,7 @@ CTI Connector allows for Computer Telephony Integration (CTI) of websites and/or
 
 
 ## Example  
-Working reference implementation can be found at: http://repo.ssl7.net/cti-connector/examples/cti-connector.html
+Working reference implementation can be found at: https://repo.ssl7.net/cti-connector/examples/cti-connector.html
  
 ## Browser support
 

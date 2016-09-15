@@ -549,11 +549,6 @@ Cti.Connector.prototype = {
 
                         if (call_direction === Cti.DIRECTION.IN) {
 
-                            // skip other contexts
-                            if (call_data.Context !== "LOCAL_USER") {
-                                return true;
-                            }
-
                             var callId = id;
                             if (Cti.CALL_STATUS.CONNECTED === call_status) {
                                 this._handleInboundCallConnected(callId, call_data);

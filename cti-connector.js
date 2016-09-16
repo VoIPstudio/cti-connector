@@ -361,6 +361,47 @@ Cti.Connector.prototype = {
 
         this._connection.send(msg.tree());
     },
+    // subscribe to given node
+    subscribe: function (node) {
+
+        if (typeof node === "undefined") {
+            this._sendErrorEvent("Missing node parameter.");
+            return;
+        }
+        
+        if (!this.isConnected()) {
+            this._sendErrorEvent("Connector need to be connected first.");
+            return;
+        }
+        
+        var parts = node.split(':');
+        if (parts.length != 2) {
+            this._sendErrorEvent("Invalid node format.");
+            return;
+        }
+
+        // available nodes
+        var nodes = ['user', 'ivr', 'queue', 'conf'],
+            node_type = parts.shift();
+        
+        if (nodes.indexOf(node_type) < 0) {
+            this._sendErrorEvent("Invalid node type.");
+            return;
+        }
+        
+        // subscribe to call events
+        var iq = $iq({
+            type: 'set',
+            to: 'pubsub.' + this._getParam('xmpp_domain')
+        }).c('pubsub', {
+            xmlns: 'http://jabber.org/protocol/pubsub'
+        }).c('subscribe', {
+            node: node,
+            jid: this._connection.jid
+        });
+        
+        this._connection.send(iq);
+    },
     // open Strophe _connection
     _connect: function (xmpp_username, xmpp_password, xmpp_domain) {
         if (!xmpp_username) {

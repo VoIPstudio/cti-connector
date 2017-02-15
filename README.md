@@ -8,7 +8,7 @@ CTI Connector allows for Computer Telephony Integration (CTI) of websites and/or
 ## Quick Start 
 
 1. Sing up for an account at https://voipstudio.com/register/
-2. Download and run softphone https://voipstudio.com//download/ (or use any other SIP client);
+2. Download and run softphone https://voipstudio.com/download/ (or use any other SIP client);
 3. Pull cti-connector from Github to your PC;
 4. Open examples/cti-connector.html in your web browser;
 5. Login with your VoIPstudio `emial` and `password` or `REST API key`;

@@ -105,8 +105,9 @@ Cti.Connector.prototype = {
             console.log("Cti.Connector: " + message);
         }
     },
-    // draft methods
-    login: function (username, password) {
+    // authentication
+    login: function () {
+        
         if (this._connection instanceof Strophe.Connection && this._connection.connected) {
             this.log("Already connected");
             // mark as connected
@@ -119,19 +120,44 @@ Cti.Connector.prototype = {
 
             return;
         }
-
-        if (username.length === 0 || password.length === 0) {
-            this._sendErrorEvent("Missing username and/or password.");
+        
+        if (arguments.length === 0 || arguments.length > 2) {
+            this._sendErrorEvent("Invalid aruments number while login.");
             return;
+        }
+        
+        if (arguments.length == 1) {
+            // authenticated via api_key
+            var apiKey = arguments[0];
+        
+            if (apiKey.length === 0) {
+                this._sendErrorEvent("Missing username and/or password.");
+                return;
+            }
+            
+            var data = {
+                api_key: apiKey,
+                protocol: "xmpp"
+            };
+        } else {
+            // authenticate via login / password
+            var username = arguments[0],
+                password = arguments[1];
+        
+            if (username.length === 0 || password.length === 0) {
+                this._sendErrorEvent("Missing username and/or password.");
+                return;
+            }
+            
+            var data = {
+                api_email: username,
+                api_password: password,
+                protocol: "xmpp"
+            };
         }
 
         // to be used inside callbacks
-        var self = this,
-                data = {
-                    api_email: username,
-                    api_password: password,
-                    protocol: "xmpp"
-                };
+        var self = this;
 
         this.xhr.open("POST", this.apiLoginUrl, true);
 

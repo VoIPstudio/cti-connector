@@ -5,7 +5,9 @@
         <meta charset="UTF-8" />
         <title>Cti Connector</title>
         <style type="text/css">
-            .margin-bottom-15 {margin-bottom: 15px;}
+            .mb15 {margin-bottom: 15px;}
+            .mt10 {margin-top: 10px;}
+            .mb10 {margin-bottom: 10px;}
         </style>
 
         <link rel="stylesheet" href="css/bootstrap.min.css">
@@ -24,11 +26,18 @@
                 <p>Status: <span class="label label-default" id="status">Not connected</span></p>
             </div>
 
-            <div class="row">
-                <form id="login-form"  class="form-inline">
+            <div id="login-form" class="row">
+                <form class="form-inline">
                     <input id="username" type="text" name="username" class="form-control" placeholder="E-mail address" />
                     <input id="password" type="password" name="password" class="form-control" placeholder="Password" />
-                    <input id="connect" type="button" value="Connect" class="btn btn-success" />
+                    <input id="connect-with-username-password" type="button" value="Connect" class="btn btn-success" />
+                </form>
+                
+                <p class="mt10 mb10">or</p>
+                
+                <form class="form-inline">
+                    <input id="api_key" type="text" name="api_key" class="form-control" placeholder="API KEY" />
+                    <input id="connect-with-api-key" type="button" value="Connect" class="btn btn-success" />
                 </form>
             </div>
 
@@ -39,7 +48,7 @@
                 </button>
             </form>
 
-            <form id="toolbar-form" style="display: none;" class="form-inline margin-bottom-15">
+            <form id="toolbar-form" style="display: none;" class="form-inline mb15">
                 <button id="call-terminate" type="button" class="btn btn-danger">
                     <span class="glyphicon glyphicon-remove-circle"></span> Terminate
                 </button>

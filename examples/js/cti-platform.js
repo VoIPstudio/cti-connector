@@ -28,15 +28,16 @@ Cti.Platform.prototype = {
                     .addClass('label label-info');
         }
     },
-    login: function (username, password) {
+    login: function () {
+        var username = arguments[0];
         $('#status')
-                .html("Authentication " + username + "...")
-                .removeClass()
-                .addClass('label label-warning');
+            .html("Authentication " + username + "...")
+            .removeClass()
+            .addClass('label label-warning');
 
         this.username = username;
 
-        connector.login(username, password);
+        connector.login.apply(connector, arguments);
     },
     logout: function () {
         this.username = null;

@@ -5,9 +5,12 @@ $().ready(function () {
     // run platform
     platform.run();
     
-    $('#connect').click(function() {
-        
+    $('#connect-with-username-password').click(function() {
         platform.login($('#username').val(), $('#password').val());
+    });
+    
+    $('#connect-with-api-key').click(function() {
+        platform.login($('#api_key').val());
     });
     
     $('#disconnect').click(function() {

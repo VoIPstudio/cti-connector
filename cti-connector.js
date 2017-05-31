@@ -417,6 +417,7 @@ Cti.Connector.prototype = {
         
         // subscribe to call events
         var iq = $iq({
+            id: this._connection.getUniqueId('sub'),
             type: 'set',
             to: 'pubsub.' + this._getParam('xmpp_domain')
         }).c('pubsub', {
@@ -529,6 +530,7 @@ Cti.Connector.prototype = {
 
                 // subscribe to call events
                 var iq = $iq({
+                    id: this._connection.getUniqueId('sub'),
                     type: 'set',
                     to: 'pubsub.' + this._getParam('xmpp_domain')
                 }).c('pubsub', {

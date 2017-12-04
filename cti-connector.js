@@ -78,13 +78,12 @@ if (typeof Strophe != "undefined") {
 Cti.Connector = function (options) {
     this.connected = false;
 
-    this.apiLoginUrl = "https://ssl7.net/voipstudio.com/u/api/login";
+    this.apiEndpoint = "https://l7api.com/v1/voipstudio";
+    
     // calbback
     this.callbacks = {
         onMessage: options.onMessage
     }
-
-    this.xhr = this._newXHR();
 
     if (this._hasActiveConnection()) {
         // _reconnect
@@ -125,83 +124,92 @@ Cti.Connector.prototype = {
             this._sendErrorEvent("Invalid aruments number while login.");
             return;
         }
+
+        var userId,
+            apiKey,
+            username,
+            password;
         
         if (arguments.length == 1) {
             // authenticated via api_key
-            var apiKey = arguments[0];
+            temp = arguments[0];
+            temp = temp.split(":");
         
-            if (apiKey.length === 0) {
-                this._sendErrorEvent("Missing username and/or password.");
+            if (temp.length !== 2) {
+                this._sendErrorEvent("Invalid API Key format, please enter <user_id:api_key>.");
                 return;
             }
-            
-            var data = {
-                api_key: apiKey,
-                protocol: "xmpp"
-            };
+
+            userId = temp[0];
+            apiKey = temp[1];
         } else {
             // authenticate via login / password
-            var username = arguments[0],
-                password = arguments[1];
+            username = arguments[0],
+            password = arguments[1];
         
             if (username.length === 0 || password.length === 0) {
                 this._sendErrorEvent("Missing username and/or password.");
                 return;
             }
-            
-            var data = {
-                api_email: username,
-                api_password: password,
-                protocol: "xmpp"
-            };
         }
 
         // to be used inside callbacks
         var self = this;
 
-        this.xhr.open("POST", this.apiLoginUrl, true);
+        var doLogin = function(credentials) {
+            self._corsRequest({
+                method: 'GET',
+                url: '/me',
+                credentials: credentials,
+                success: function(response) {
 
-        if ("withCredentials" in this.xhr) {
-            this.xhr.withCredentials = true;
+                    self.log("ajax login SUCCESS");
+                    // reset call list
+                    self._setCalls({});
+                    // sucessfull login
+                    self.connected = true;
+
+                    // send LoggedOn event
+                    self._sendEvent({
+                        name: Cti.EVENT.LOGGED_IN,
+                        message: 'User has been successfully authenticated.'
+                    });
+
+                    // connext to XMPP server
+                    self._connect(response.data.id, response.data.xmpp_password, response.data.xmpp_domain);
+
+                },
+                failure: function(status, response) {
+                    self.log("ajax login FAIL - user data failure");
+                    self._sendErrorEvent("Unable to login - user data failure");
+                }
+            });
         }
 
-        this.xhr.onreadystatechange = function () {
-
-            if (self.xhr.readyState === 4) {
-                if (self.xhr.status === 200 || self.xhr.status === 304) {
-                    // done
-                    var response = JSON.parse(self.xhr.responseText);
-
-                    // Indicate a successful _connection to service provider based
-                    if (response.success) {
-
-                        self.log("ajax login SUCCESS");
-                        // reset call list
-                        self._setCalls({});
-                        // sucessfull login
-                        self.connected = true;
-
-                        // send LoggedOn event
-                        self._sendEvent({
-                            name: Cti.EVENT.LOGGED_IN,
-                            message: 'User has been successfully authenticated.'
-                        });
-
-                        // connext to XMPP server
-                        self._connect(response.xmpp_username, response.xmpp_password, response.xmpp_domain);
-
-                    } else {
-                        self._sendErrorEvent(response.error);
+        if (apiKey) {
+            doLogin({ user_id: userId, user_token: apiKey });
+        } else {
+            self._corsRequest({
+                method: "POST",
+                url: '/login',
+                data: {
+                    email: username,
+                    password: password
+                },
+                success: function(response) {
+                    if (!response.user_id || !response.user_token) {
+                        self._sendErrorEvent('user_id and/or user_token missing in API response.');
+                        return;
                     }
-                } else {
-                    // fail
+
+                    doLogin(response);
+                },
+                failure: function(status, response) {
                     self.log("ajax login FAIL");
                     self._sendErrorEvent("Unable to login");
                 }
-            }
-        };
-
-        this.xhr.send(this._serialize(data));
+            });
+        }
     },
     logout: function () {
         if (!this.isConnected()) {
@@ -969,6 +977,44 @@ Cti.Connector.prototype = {
         });
 
         this._removeCall(callId);
+    },
+    _corsRequest: function(config) {
+        var self = this;
+
+        var xhr = this._newXHR();
+
+        xhr.open(config.method, this.apiEndpoint + config.url, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+
+        if (config.credentials) {
+            xhr.setRequestHeader("Authorization", "Basic " + btoa(config.credentials.user_id + ':' + config.credentials.user_token));
+        }
+
+        xhr.onreadystatechange = function () {
+
+            if (xhr.readyState !== 4) {
+                return;
+            }
+
+            var response = '';
+
+            if (xhr.responseText) {
+                response = JSON.parse(xhr.responseText);
+            }
+
+            if (xhr.status === 200) {
+                config.success(response);
+            } else {
+                config.failure(xhr.status, response);
+            }
+            
+        };
+
+        if (config.data) {
+            xhr.send(JSON.stringify(config.data));
+        } else {
+            xhr.send();
+        }
     },
     _newXHR: function () {
         var xhr = null;

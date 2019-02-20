@@ -76,9 +76,10 @@ if (typeof Strophe != "undefined") {
 }
 
 Cti.Connector = function (options) {
+
     this.connected = false;
 
-    this.apiEndpoint = "https://l7api.com/v1/voipstudio";
+    this.apiEndpoint = "https://l7api.com/v1.1/voipstudio";
     
     // calbback
     this.callbacks = {
@@ -438,7 +439,7 @@ Cti.Connector.prototype = {
         this._connection.send(iq);
     },
     // open Strophe _connection
-    _connect: function (xmpp_username, xmpp_password, xmpp_domain) {
+    _connect: function (xmpp_username, xmpp_password, xmpp_domain, full_jid) {
         if (!xmpp_username) {
             this._sendErrorEvent("Empty xmpp_username given");
             return;
@@ -454,27 +455,18 @@ Cti.Connector.prototype = {
             return;
         }
 
-        var url = 'https://' + xmpp_domain + '/http-bind',
+        var url = 'wss://' + xmpp_domain + '/xmpp-websocket',
                 // bare jid to be used inside callback
-                bare_jid = xmpp_username + '@' + xmpp_domain,
+                jid = (full_jid) ? full_jid : xmpp_username + '@' + xmpp_domain,
                 // to be used inside callbacks
                 self = this;
 
-        this._setParam('xmpp_domain', xmpp_domain);
-        this._setParam('xmpp_username', xmpp_username);
-
         // open new XMPP conection with Strophe
         this._connection = new Strophe.Connection(url);
-        this._connection.xmlOutput = function (elem) {
-            self._setParam('rid', elem.getAttribute('rid'));
-        };
 
-        this._connection.connect(bare_jid, xmpp_password, function (status) {
-            // update _connector sid
-            self._setParam('sid', self._connection._proto.sid);
-
+        this._connection.connect(jid, xmpp_password, function (status) {
             // call on Connected method
-            self._onConnected(status, false);
+            self._onConnected(status, xmpp_domain, xmpp_username, xmpp_password);
         });
     },
     _reconnect: function () {
@@ -485,45 +477,22 @@ Cti.Connector.prototype = {
         }
 
         // _reconnect with no rid and sid
-        if (!this._getParam('rid') || !this._getParam('sid')) {
+        if (!this._getParam('full_jid') || !this._getParam('xmpp_domain') || !this._getParam('xmpp_username') || !this._getParam('xmpp_password')) {
             this._sendErrorEvent("You need to login first in order to be able to reconnect to XMPP server.");
             return;
         }
 
-        var url = 'https://' + this._getParam('xmpp_domain') + '/http-bind',
-                // to be used inside callbacks
-                self = this;
-
-        // open new XMPP conection with Strophe
-        this._connection = new Strophe.Connection(url);
-        this._connection.xmlOutput = function (elem) {
-            self._setParam('rid', elem.getAttribute('rid'));
-        };
-
-        // user already connected
-        this.connected = true;
-
-        // _reconnect
-        var full_jid = this._getParam('full_jid'),
-                sid = this._getParam('sid'),
-                rid = parseInt(this._getParam('rid')) + 1;
-
-        this._connection.attach(full_jid, sid, rid, function (status) {
-            self._onConnected(status, true);
-        });
+        this._connect(this._getParam('xmpp_username'), this._getParam('xmpp_password'), this._getParam('xmpp_domain'), this._getParam('full_jid'));
     },
     _hasActiveConnection: function () {
-        if (this._getParam('rid') && this._getParam('sid') && this._getParam('xmpp_domain')) {
-            return true;
-        }
-        return false;
+        return (this._getParam('full_jid') && this._getParam('xmpp_domain') && this._getParam('xmpp_username') && this._getParam('xmpp_password'));
     },
     _onError: function (status) {
         if (status == Strophe.Status.ERROR) {
             // do nothing
         }
     },
-    _onConnected: function (status) {
+    _onConnected: function (status, xmpp_domain, xmpp_username, xmpp_password) {
         if (Strophe.Status.CONNECTING == status || Strophe.Status.AUTHENTICATING == status) {
             this.log('XMPP Connecting...');
         } else if (Strophe.Status.CONNECTED == status || Strophe.Status.ATTACHED == status) {
@@ -535,16 +504,19 @@ Cti.Connector.prototype = {
 
                 // save full jid
                 this._setParam('full_jid', this._connection.jid);
+                this._setParam('xmpp_domain', xmpp_domain);
+                this._setParam('xmpp_username', xmpp_username);
+                this._setParam('xmpp_password', xmpp_password);
 
                 // subscribe to call events
                 var iq = $iq({
                     id: this._connection.getUniqueId('sub'),
                     type: 'set',
-                    to: 'pubsub.' + this._getParam('xmpp_domain')
+                    to: 'pubsub.' + xmpp_domain
                 }).c('pubsub', {
                     xmlns: 'http://jabber.org/protocol/pubsub'
                 }).c('subscribe', {
-                    node: 'user:' + this._getParam('xmpp_username'),
+                    node: 'user:' + xmpp_username,
                     jid: this._connection.jid
                 });
                 this._connection.send(iq);

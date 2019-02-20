@@ -220,7 +220,7 @@ Cti.Connector.prototype = {
         this.connected = false;
 
         // cleanup
-        this._setCookie('l7_connector', {});
+        this._setStorage('l7_connector', {});
 
         if (this._connection.connected) {
             // terminates communications with the remote service provider
@@ -478,8 +478,8 @@ Cti.Connector.prototype = {
         });
     },
     _reconnect: function () {
-        // unable to _connect with empty xmpp cookie
-        if (!this._getCookie('l7_connector')) {
+        // unable to _connect with empty xmpp credentials
+        if (!this._getStorage('l7_connector')) {
             this._sendErrorEvent("You need to login first in order to be able to connect to XMPP server.");
             return;
         }
@@ -1114,7 +1114,7 @@ Cti.Connector.prototype = {
     _setParam: function (name, value) {
         var params = this._getParams();
         params[name] = value;
-        this._setCookie('l7_connector', params);
+        this._setStorage('l7_connector', params);
 
         return this;
     },
@@ -1123,42 +1123,28 @@ Cti.Connector.prototype = {
         return params[name] !== undefined ? params[name] : defaults;
     },
     _getParams: function () {
-        return this._getCookie('l7_connector', {});
+        return this._getStorage('l7_connector', {});
     },
-    _getCookie: function (key, defaults) {
-        var cookies = document.cookie ? document.cookie.split('; ') : [];
+    _getStorage: function (key, defaults) {
+        var data = localStorage.getItem(key);
 
-        for (var i = 0, l = cookies.length; i < l; i++) {
-            var parts = cookies[i].split('=');
-            var name = decodeURIComponent(parts.shift());
-            var cookie = parts.join('=');
-
-            if (key && key === name) {
-                return JSON.parse(cookie);
-            }
+        if (!data) {
+            return defaults;
         }
 
-        return defaults !== undefined ? defaults : undefined;
-    },
-    _setCookie: function (name, value, options) {
-        options = (options === undefined) ? {} : options;
+        var json = JSON.parse(data);
 
-        if (typeof options.expires === 'number') {
-            var days = options.expires, t = options.expires = new Date();
-            t.setTime(+t + days * 864e+5);
+        if (!json) {
+            return defaults;
         }
 
-        document.cookie = [
-            // storage of JOSN objects - _serialize
-            name, '=', JSON.stringify(value),
-            options.expires ? '; expires=' + options.expires.toUTCString() : '', // use expires attribute, max-age is not supported by IE
-            options.path ? '; path=' + options.path : '',
-            options.domain ? '; domain=' + options.domain : '',
-            options.secure || this._isSecured() ? '; secure' : ''
-        ].join('');
+        return json;
     },
-    _removeCookie: function (name) {
-        return this._setCookie(name, '', {expires: -1});
+    _setStorage: function (name, value) {
+        localStorage.setItem(name, JSON.stringify(value));
+    },
+    _removeStorage: function (name) {
+        localStorage.removeItem(name);
     },
     _isSecured: function () {
         if (window.location.protocol != "https:") {

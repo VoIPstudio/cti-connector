@@ -5,7 +5,7 @@
   of the MIT license.  See the LICENSE file for details.
 */
 
-Cti = {
+var Cti = {
     EVENT: {
         READY: "READY",
         LOGGED_IN: "LOGGED_IN",
@@ -83,13 +83,13 @@ Cti.Connector = function (options) {
     // calbback
     this.callbacks = {
         onMessage: options.onMessage
-    }
+    };
 
     if (this._hasActiveConnection()) {
         // _reconnect
         this._reconnect();
     }
-}
+};
 
 Cti.Connector.prototype = {
     /**
@@ -132,7 +132,7 @@ Cti.Connector.prototype = {
         
         if (arguments.length == 1) {
             // authenticated via api_key
-            temp = arguments[0];
+            var temp = arguments[0];
             temp = temp.split(":");
         
             if (temp.length !== 2) {
@@ -179,12 +179,12 @@ Cti.Connector.prototype = {
                     self._connect(response.data.id, response.data.xmpp_password, response.data.xmpp_domain);
 
                 },
-                failure: function(status, response) {
+                failure: function() {
                     self.log("ajax login FAIL - user data failure");
                     self._sendErrorEvent("Unable to login - user data failure");
                 }
             });
-        }
+        };
 
         if (apiKey) {
             doLogin({ user_id: userId, user_token: apiKey });
@@ -204,7 +204,7 @@ Cti.Connector.prototype = {
 
                     doLogin(response);
                 },
-                failure: function(status, response) {
+                failure: function() {
                     self.log("ajax login FAIL");
                     self._sendErrorEvent("Unable to login");
                 }
@@ -523,7 +523,7 @@ Cti.Connector.prototype = {
             // do nothing
         }
     },
-    _onConnected: function (status, _reconnect) {
+    _onConnected: function (status) {
         if (Strophe.Status.CONNECTING == status || Strophe.Status.AUTHENTICATING == status) {
             this.log('XMPP Connecting...');
         } else if (Strophe.Status.CONNECTED == status || Strophe.Status.ATTACHED == status) {
@@ -772,16 +772,17 @@ Cti.Connector.prototype = {
         });
     },
     _handleOutboundCallRinging: function (callId, call_data) {
+        var call;
         if (this._hasCall(callId)) {
             // call from UI
-            var call = this._getCall(callId);
+            call = this._getCall(callId);
             // update unique XMPP call ID
             call.cid = call_data.Id;
             call.status = Cti.CALL_STATUS.RINGING;
             this._setCall(callId, call);
         } else {
             // call from Softphone
-            var call = {
+            call = {
                 id: callId,
                 cid: call_data.Id,
                 cause: "",
@@ -979,8 +980,6 @@ Cti.Connector.prototype = {
         this._removeCall(callId);
     },
     _corsRequest: function(config) {
-        var self = this;
-
         var xhr = this._newXHR();
 
         xhr.open(config.method, this.apiEndpoint + config.url, true);
@@ -1030,11 +1029,11 @@ Cti.Connector.prototype = {
                 } catch (e) {
                 }
             };
-            var xhr = new XDomainRequest();
+            xhr = new XDomainRequest();
 
             xhr.readyState = 0;
             xhr.onload = function () {
-                xmlDoc = new ActiveXObject("Microsoft.XMLDOM");
+                var xmlDoc = new ActiveXObject("Microsoft.XMLDOM");
                 xmlDoc.async = "false";
                 xmlDoc.loadXML(xhr.responseText);
                 xhr.responseXML = xmlDoc;
@@ -1063,9 +1062,9 @@ Cti.Connector.prototype = {
     _nodeToArray: function (node) {
         var childNodes = node.childNodes, result = {};
         for (var i = 0; i < childNodes.length; i++) {
-            var node = childNodes[i],
-                    // IE8 hook: IE8 does not support textContent
-                    text = node.textContent || node.text;
+            node = childNodes[i];
+            // IE8 hook: IE8 does not support textContent
+            var text = node.textContent || node.text;
             result[node.nodeName] = text;
         }
         return result;
@@ -1089,7 +1088,7 @@ Cti.Connector.prototype = {
     },
     // strip special charactes from numsageber
     _formatE164: function (number) {
-        return "+" + number.replace(/\+|\-|\.|\(|\)| /g, "").replace(/^0{1,2}/g, "");
+        return "+" + number.replace(/\+|-|\.|\(|\)| /g, "").replace(/^0{1,2}/g, "");
     },
     _isPhoneNumberValid: function (number) {
         return /^\+[1-9][0-9]{5,16}$/.test(number);
@@ -1142,7 +1141,7 @@ Cti.Connector.prototype = {
         return defaults !== undefined ? defaults : undefined;
     },
     _setCookie: function (name, value, options) {
-        var options = (options === undefined) ? {} : options;
+        options = (options === undefined) ? {} : options;
 
         if (typeof options.expires === 'number') {
             var days = options.expires, t = options.expires = new Date();

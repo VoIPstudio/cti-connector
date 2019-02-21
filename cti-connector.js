@@ -66,19 +66,16 @@ var Cti = {
     }
 };
 
-if (typeof Strophe != "undefined") {
-
-    Strophe.log = function (level, msg) {
-        if (level >= Strophe.LogLevel.INFO && window.console) {
-            console.log('STROPHE LOG: ' + level + ' ' + msg);
-        }
-    };
-}
 
 Cti.Connector = function (options) {
+    if (typeof SIP == "undefined") {
+        console.error('SIP dependency missing');
+        return;
+    }
+
     this.connected = false;
 
-    this.apiEndpoint = "https://l7api.com/v1.1/voipstudio";
+    this.apiEndpoint = "https://api.l7dev.co.cc/v1.1/voipstudio";
     
     // calbback
     this.callbacks = {
@@ -92,6 +89,11 @@ Cti.Connector = function (options) {
 };
 
 Cti.Connector.prototype = {
+    
+    ua: null,
+    subscriptions: {},
+    calls: {},
+
     /**
      * Returns boolean true if the client is currently connected.
      */
@@ -107,7 +109,7 @@ Cti.Connector.prototype = {
     // authentication
     login: function () {
         
-        if (this._connection instanceof Strophe.Connection && this._connection.connected) {
+        if (this.ua && this.ua.isConnected()) {
             this.log("Already connected");
             // mark as connected
             this.connected = true;
@@ -179,8 +181,8 @@ Cti.Connector.prototype = {
                         message: 'User has been successfully authenticated.'
                     });
 
-                    // connext to XMPP server
-                    self._connect(response.data.id, response.data.xmpp_password, response.data.xmpp_domain);
+                    // connext to SIP server
+                    self._connect(response.data.id, response.data.sip_password, response.data.sip_domain);
 
                 },
                 failure: function() {
@@ -226,9 +228,9 @@ Cti.Connector.prototype = {
         // cleanup
         this._setStorage('l7_connector', {});
 
-        if (this._connection.connected) {
+        if (this.ua.isConnected()) {
             // terminates communications with the remote service provider
-            this._connection.disconnect("logout");
+            this.ua.stop();
         }
 
         // send LoggedOut event
@@ -291,8 +293,6 @@ Cti.Connector.prototype = {
                 self._sendErrorEvent(error);
             }
         });
-
-        
     },
     call: function (destination) {
 
@@ -320,35 +320,15 @@ Cti.Connector.prototype = {
             }
         } else {
             // extension or spcial internal number
-            if (this._getParam('xmpp_username') == destination) {
+            if (this._getParam('sip_username') == destination) {
                 this._sendErrorEvent("You are unable to call to yourself.");
                 return;
             }
         }
 
-        var callId = this._uniqid(),
-                // call detatils
-                call = {
-                    id: callId,
-                    cid: "",
-                    cause: "",
-                    status: "",
-                    direction: Cti.DIRECTION.OUT,
-                    destination: destination,
-                    contacts: new Array()
-                };
-
-        this._setCall(callId, call);
-
-        this.log("Call: " + destination);
-        var cmd = "/call " + destination;
-        var msg = $msg({
-            to: 'cc@' + this._getParam('xmpp_domain'),
-            type: 'chat',
-            id: 'c2c' + callId
-        }).c('body', {}, cmd);
-
-        this._connection.send(msg.tree());
+        this.apiRequest('POST', '/calls', {
+            to: destination.replace(/^\+/,"")
+        });
     },
     terminate: function (callId) {
 
@@ -375,15 +355,7 @@ Cti.Connector.prototype = {
             return;
         }
 
-        this.log("HangUp: " + call.cid);
-        var cmd = "/terminate " + call.cid;
-        var msg = $msg({
-            to: 'cc@' + this._getParam('xmpp_domain'),
-            type: 'chat',
-            id: 'c2c' + call.cid
-        }).c('body', {}, cmd);
-
-        this._connection.send(msg.tree());
+        this.apiRequest('DELETE', '/calls/' + callId);
     },
     transfer: function (callId, destination) {
 
@@ -434,7 +406,7 @@ Cti.Connector.prototype = {
                 return;
             }
 
-            if (this._getParam('xmpp_username') == destination) {
+            if (this._getParam('sip_username') == destination) {
                 this._sendErrorEvent("You are unable to transfer call to yourself.");
                 return;
             }
@@ -445,27 +417,20 @@ Cti.Connector.prototype = {
 
         this._setCall(callId, call);
 
-        // destination n
-        this.log("Transfer: " + call.cid + " " + call.destination);
-        var cmd = "/transfer " + call.cid + " " + call.destination;
-        var msg = $msg({
-            to: 'cc@' + this._getParam('xmpp_domain'),
-            type: 'chat',
-            id: 'c2c' + call.cid
-        }).c('body', {}, cmd);
-
-        this._connection.send(msg.tree());
+        this.apiRequest('PATCH', '/calls/' + callId, {
+            dst: destination
+        });
     },
     // subscribe to given node
     subscribe: function (node) {
-
+        var me = this;
         if (typeof node === "undefined") {
-            this._sendErrorEvent("Missing node parameter.");
+            me._sendErrorEvent("Missing node parameter.");
             return;
         }
         
-        if (!this.isConnected()) {
-            this._sendErrorEvent("Connector need to be connected first.");
+        if (!me.ua.isConnected()) {
+            me._sendErrorEvent("Connector need to be connected first.");
             return;
         }
         
@@ -477,104 +442,280 @@ Cti.Connector.prototype = {
 
         // available nodes
         var nodes = ['user', 'ivr', 'queue', 'conf'],
-            node_type = parts.shift();
+            node_type = parts.shift(),
+            node_id = parts.shift();
         
         if (nodes.indexOf(node_type) < 0) {
             this._sendErrorEvent("Invalid node type.");
             return;
         }
-        
-        // subscribe to call events
-        var iq = $iq({
-            id: this._connection.getUniqueId('sub'),
-            type: 'set',
-            to: 'pubsub.' + this._getParam('xmpp_domain')
-        }).c('pubsub', {
-            xmlns: 'http://jabber.org/protocol/pubsub'
-        }).c('subscribe', {
-            node: node,
-            jid: this._connection.jid
-        });
-        
-        this._connection.send(iq);
-    },
-    // open Strophe _connection
-    _connect: function (xmpp_username, xmpp_password, xmpp_domain) {
-        if (!xmpp_username) {
-            this._sendErrorEvent("Empty xmpp_username given");
+        var subscribeNode;
+
+        if (node_type == 'user') {
+            subscribeNode = node_id;
+        } else {
+            subscribeNode = node_type + "-" + node_id;
+        }
+
+        var subscribeURI = subscribeNode + '@' + me._getParam('sip_domain');
+
+        if (me.subscriptions[subscribeURI]) {
+            me.log('Already subscribed to ['+subscribeURI+'], skipping...');
             return;
         }
 
-        if (!xmpp_password) {
-            this._sendErrorEvent("Empty xmpp_password given");
-            return;
-        }
+        me.log('Cti.connector.subscribe ['+subscribeURI+']');
 
-        if (!xmpp_domain) {
-            this._sendErrorEvent("Empty xmpp_domain given");
-            return;
-        }
-
-        var url = 'https://' + xmpp_domain + '/http-bind',
-                // bare jid to be used inside callback
-                bare_jid = xmpp_username + '@' + xmpp_domain,
-                // to be used inside callbacks
-                self = this;
-
-        this._setParam('xmpp_domain', xmpp_domain);
-        this._setParam('xmpp_username', xmpp_username);
-
-        // open new XMPP conection with Strophe
-        this._connection = new Strophe.Connection(url);
-        this._connection.xmlOutput = function (elem) {
-            self._setParam('rid', elem.getAttribute('rid'));
+        var options = {
+            expires: 300
         };
 
-        this._connection.connect(bare_jid, xmpp_password, function (status) {
-            // update _connector sid
-            self._setParam('sid', self._connection._proto.sid);
+        var subscribe = me.ua.subscribe(subscribeURI, 'dialog', options);
+
+        me.subscriptions[subscribeURI] = subscribe;
+
+        subscribe.on('notify', function(notify) { 
+            me.parseNotify(notify);
+        });
+
+        return subscribe;
+    },
+    apiRequest: function(method, url, data, cb) {
+        var self = this;
+
+        var cfg = {
+            method: method,
+            url: url,
+            credentials: { user_id: self._getParam('user_id'), user_token: self._getParam('user_token') },
+            success: function() {
+                if (typeof cb == 'function') {
+                    cb();
+                }
+            },
+            failure: function(status, response) {
+
+                var errors = [];
+
+                if (response.message) {
+                    errors.push(response.message);
+                }
+
+                if (response.errors) {
+                    for (var i = 0; i < response.errors.length; i++) {
+                        errors.push(response.errors[i].field + ': ' + response.errors[i].message);
+                    }
+                }
+
+                var error = (errors.length > 0) ? errors.join(" ") : "Unknown API Error";
+
+                self._sendErrorEvent(error);
+            }
+        };
+
+        if (data) {
+            cfg.data = data;
+        }
+
+        self._corsRequest(cfg);
+    },
+    parseNotify: function(notify) {
+        var me = this;
+        var parser = new DOMParser();
+        var xmlDoc = parser.parseFromString(notify.request.body, "text/xml");
+
+        var dialogs = xmlDoc.getElementsByTagName('dialog');
+
+        for (var i = 0; i < dialogs.length; i++) { 
+            var dialog = dialogs[i],
+                temp = dialog.id.split("-");
+
+            var call = { 
+                id: temp[0],
+                dialog_id: dialog.id,
+                direction: null,
+                state: null,
+                remote: null,
+                remote_name: null,
+                local: null,
+                local_name: null,
+                context: null,
+                duration: 0
+            };
+
+            call.direction = dialog.getAttribute('direction');
+
+            if (dialog.getElementsByTagName('state').length) {
+                call.state = dialog.getElementsByTagName('state')[0].childNodes[0].nodeValue;
+            }
+
+            var remotes = dialog.getElementsByTagName('remote');
+
+            if (remotes.length) {
+
+                var remote = remotes[0];
+
+                if (remote.getElementsByTagName('identity').length) {
+                    var remoteUri = remote.getElementsByTagName('identity')[0].childNodes[0].nodeValue;
+                    call.remote_name = remote.getElementsByTagName('identity')[0].getAttribute('display').replace("&lt;","<").replace("&gt;", ">");
+                    
+                    temp = remoteUri.split('@');
+                    call.remote = temp[0].substring(4);
+                }
+            }
+
+            var locals = dialog.getElementsByTagName('local');
+
+            if (locals.length) {
+
+                var local = locals[0];
+
+                if (local.getElementsByTagName('identity').length) {
+                    var localUri = local.getElementsByTagName('identity')[0].childNodes[0].nodeValue;
+                    call.local_name = local.getElementsByTagName('identity')[0].getAttribute('display').replace("&lt;","<").replace("&gt;", ">");
+                    
+                    temp = localUri.split('@');
+                    call.local = temp[0].substring(4);
+                }
+
+                var params = local.getElementsByTagName('target')[0].getElementsByTagName('param');
+
+                for (var j = 0; j < params.length; j++) {
+                    var param = params[j];
+
+                    var pname = param.getAttribute('pname');
+                    var pval = param.getAttribute('pval');
+
+                    if (pname == '+sip.rendering' && pval == 'no') {
+                        call.state = 'onhold';
+                    }
+
+                    if (pname == 'timestamp.start') {
+                        var d = new Date();
+                        var seconds = Math.round(d.getTime() / 1000);
+                        call.duration = seconds - parseInt(pval);
+                    }
+
+                    if (pname == 'context') {
+                        call.context = pval;
+                    }
+                }
+            }
+
+
+            var callId = call.id;
+
+            me.calls[callId] = call;
+
+            if (call.direction == "receiver") {
+                if (call.state == 'confirmed') {
+                    this._handleInboundCallConnected(callId, call);
+                }
+
+                if (call.state == 'early') {
+                    this._handleInboundCallRinging(callId, call);
+                }
+
+                if (call.state == 'onhold') {
+                    this._handleInboundCallOnHold(callId, call);
+                }
+
+                if (call.state == 'terminated') {
+                    this._handleInboundCallHangUp(callId, call);
+                }                
+            } else {
+
+                if (call.state == 'confirmed') {
+                    this._handleOutboundCallConnected(callId, call);
+                }
+
+                if (call.state == 'early') {
+                    this._handleOutboundCallRinging(callId, call);
+                }
+
+                if (call.state == 'onhold') {
+                    this._handleOutboundCallOnHold(callId, call);
+                }
+
+                if (call.state == 'terminated') {
+                    this._handleOutboundCallHangUp(callId, call);
+                }
+            }
+        }
+    },
+    // open SIP connection
+    _connect: function (sip_username, sip_password, sip_domain) {
+        var me = this;
+        if (!sip_username) {
+            me._sendErrorEvent("Empty sip_username given");
+            return;
+        }
+
+        if (!sip_password) {
+            me._sendErrorEvent("Empty sip_password given");
+            return;
+        }
+
+        if (!sip_domain) {
+            me._sendErrorEvent("Empty sip_domain given");
+            return;
+        }
+
+        me.ua = new SIP.UA({
+            uri: sip_username + '@' + sip_domain,
+            traceSip: false,
+            log: {
+                builtinEnabled: false
+            },
+            userAgentString: 'CTI Connector',
+            wsServers: [ 'wss://' + sip_domain + ':443' ],
+            authorizationUser: sip_username,
+            password: sip_password,
+            register: false,
+            sessionDescriptionHandlerFactoryOptions:{
+                peerConnectionOptions: {
+                  rtcConfiguration:{
+                    iceServers: []
+                  }
+                }
+            }
+        });
+
+        me.ua.on('connecting', function(){
+            me.log('SIP Connecting...');
+            me.subscriptions = {};
+        });
+        
+        me.ua.on('connected', function(){
+
+            me.connected = true;
+
+            me._setParam('sip_username', sip_username);
+            me._setParam('sip_password', sip_password);
+            me._setParam('sip_domain', sip_domain);
 
             // call on Connected method
-            self._onConnected(status, false);
+            me._onConnected();
+        });
+
+        me.ua.on('disconnected', function(){
+            me.log('SIP Disconnected...');
+            me.subscriptions = {};
         });
     },
     _reconnect: function () {
-        // unable to _connect with empty xmpp credentials
-        if (!this._getStorage('l7_connector')) {
-            this._sendErrorEvent("You need to login first in order to be able to connect to XMPP server.");
+        var me = this;
+        // unable to _connect with empty storage
+        if (!me._getStorage('l7_connector')) {
+            me._sendErrorEvent("You need to login first in order to be able to connect to SIP server.");
             return;
         }
 
-        // _reconnect with no rid and sid
-        if (!this._getParam('rid') || !this._getParam('sid')) {
-            this._sendErrorEvent("You need to login first in order to be able to reconnect to XMPP server.");
-            return;
-        }
+        me.log('re-connecting...');
 
-        var url = 'https://' + this._getParam('xmpp_domain') + '/http-bind',
-                // to be used inside callbacks
-                self = this;
-
-        // open new XMPP conection with Strophe
-        this._connection = new Strophe.Connection(url);
-        this._connection.xmlOutput = function (elem) {
-            self._setParam('rid', elem.getAttribute('rid'));
-        };
-
-        // user already connected
-        this.connected = true;
-
-        // _reconnect
-        var full_jid = this._getParam('full_jid'),
-                sid = this._getParam('sid'),
-                rid = parseInt(this._getParam('rid')) + 1;
-
-        this._connection.attach(full_jid, sid, rid, function (status) {
-            self._onConnected(status, true);
-        });
+        me._connect(me._getParam('sip_username'), me._getParam('sip_password'), me._getParam('sip_domain'));
     },
     _hasActiveConnection: function () {
-        if (this._getParam('rid') && this._getParam('sid') && this._getParam('xmpp_domain')) {
+        if (this._getParam('sip_username') && this._getParam('sip_password') && this._getParam('sip_domain')) {
             return true;
         }
         return false;
@@ -584,182 +725,19 @@ Cti.Connector.prototype = {
             // do nothing
         }
     },
-    _onConnected: function (status) {
-        if (Strophe.Status.CONNECTING == status || Strophe.Status.AUTHENTICATING == status) {
-            this.log('XMPP Connecting...');
-        } else if (Strophe.Status.CONNECTED == status || Strophe.Status.ATTACHED == status) {
-            // to be used inside callbacks
-            var self = this;
+    _onConnected: function () {
 
-            if (Strophe.Status.CONNECTED == status) {
-                this.log('XMPP Connected');
+        var me = this;
 
-                // save full jid
-                this._setParam('full_jid', this._connection.jid);
+        me.log('Connected');
 
-                // subscribe to call events
-                var iq = $iq({
-                    id: this._connection.getUniqueId('sub'),
-                    type: 'set',
-                    to: 'pubsub.' + this._getParam('xmpp_domain')
-                }).c('pubsub', {
-                    xmlns: 'http://jabber.org/protocol/pubsub'
-                }).c('subscribe', {
-                    node: 'user:' + this._getParam('xmpp_username'),
-                    jid: this._connection.jid
-                });
-                this._connection.send(iq);
+        me.subscribe('user:' + me._getParam('sip_username'));
 
-            } else {
-                this.log('XMPP Re-Attached');
-            }
-            // Strophe handlers
-            this._connection.addHandler(function (stanza) {
-                self._onMessage(stanza);
-                return true;
-            }, null, "message");
-
-            // send Ready event
-            this._sendEvent({
-                name: Cti.EVENT.READY,
-                message: "Connection with XMPP server has been successfully established."
-            });
-
-        } else if (Strophe.Status.CONNFAIL == status) {
-            this.log('XMPP _connection fail');
-        } else if (Strophe.Status.DISCONNECTING == status) {
-            this.log('XMPP disconnecting');
-        } else if (Strophe.Status.DISCONNECTED == status) {
-            this.log('XMPP disconnected');
-            if (this.isConnected()) {
-                // if xmpp data exists
-                this.logout();
-            }
-        } else {
-            this.log('Strophe unhandled status: ' + status);
-        }
-    },
-    _onMessage: function (stanza) {
-        var type = stanza.getAttribute('type');
-
-        // error occurred
-        if (Cti.TYPE.ERROR === type) {
-            return true;
-        }
-
-        // HEADLINE
-        if (Cti.TYPE.HEADLINE === type) {
-
-            var items = stanza.getElementsByTagName('items');
-            for (var index = 0; index < items.length; index++) {
-
-                var item = items[index];
-                if (item.getElementsByTagName('call').length > 0) {
-
-                    var call_node = stanza.getElementsByTagName('call')[0],
-                            call_data = this._nodeToArray(call_node),
-                            call_status = call_data.State,
-                            id = call_data.Id;
-
-                    // ENDPOINTs
-                    if (call_data.Context === "ENDPOINT") {
-
-                        if (id.indexOf('c2c') !== 0) {
-                            this.log("Invalid id: " + id);
-                            return;
-                        }
-
-                        var callId = id.substring(3);
-                        if (call_status === Cti.CALL_STATUS.ACCEPTED) {
-                            // ACCEPTED
-                            this._handleEndpointAccepted(callId, call_data);
-                        } else if (call_status === Cti.CALL_STATUS.INITIAL) {
-                            // INITIAL
-                            this._handleEndpointInitial(callId, call_data);
-                        } else {
-                            // HANGUP
-                            this._handleEndpointNotAccepted(callId, call_data);
-                        }
-                        //CALLs
-                    } else {
-
-                        var call_direction = this._getCallDirection(call_data);
-
-                        if (call_direction === Cti.DIRECTION.IN) {
-
-                            var callId = id;
-                            if (Cti.CALL_STATUS.CONNECTED === call_status) {
-                                this._handleInboundCallConnected(callId, call_data);
-                            }
-
-                            if (Cti.CALL_STATUS.RINGING === call_status) {
-                                this._handleInboundCallRinging(callId, call_data);
-                            }
-
-                            if (Cti.CALL_STATUS.ON_HOLD === call_status) {
-                                this._handleInboundCallOnHold(callId, call_data);
-                            }
-
-                            if (Cti.CALL_STATUS.HANGUP === call_status) {
-                                this._handleInboundCallHangUp(callId, call_data);
-                            }
-                        }
-
-                        if (call_direction === Cti.DIRECTION.OUT) {
-
-                            if (typeof call_data.ReferredBy === "undefined") {
-                                var callId = id;
-                            } else if (call_data.ReferredBy.indexOf('c2c') !== 0) {
-                                this.log("Invalid thread: " + call_data.ReferredBy);
-                                return;
-                            } else {
-                                var callId = call_data.ReferredBy.substring(3);
-                            }
-
-                            if (Cti.CALL_STATUS.CONNECTED === call_status) {
-                                this._handleOutboundCallConnected(callId, call_data);
-                            }
-
-                            if (Cti.CALL_STATUS.RINGING === call_status) {
-                                this._handleOutboundCallRinging(callId, call_data);
-                            }
-
-                            if (Cti.CALL_STATUS.ON_HOLD === call_status) {
-                                this._handleOutboundCallOnHold(callId, call_data);
-                            }
-
-                            if (Cti.CALL_STATUS.HANGUP === call_status) {
-                                this._handleOutboundCallHangUp(callId, call_data);
-                            }
-                        }
-                    }
-                }
-            }
-            // CHAT
-        } else if (Cti.TYPE.CHAT === type) {
-            // has call id 
-            if (stanza.getAttribute('id') !== undefined) {
-
-                var id = stanza.getAttribute('id');
-                if (id.indexOf('c2c') !== 0)
-                    return;
-
-                var callId = id.substring(3);
-                if (stanza.getElementsByTagName('body').length > 0) {
-                    var body = stanza.getElementsByTagName('body')[0],
-                            // IE8 hook: IE8 does not support textContent
-                            text = body.textContent || body.text;
-
-                    if (text.indexOf("Error") > -1) {
-                        this._handleEndpointError(callId, text);
-                    }
-                }
-            }
-        } else {
-            this.log('Undefined type: ' + type);
-        }
-
-        return true;
+        // send Ready event
+        me._sendEvent({
+            name: Cti.EVENT.READY,
+            message: "Connection with SIP server has been successfully established."
+        });
     },
     // Call CONNECTED
     _handleInboundCallConnected: function (callId, call_data) {
@@ -818,10 +796,10 @@ Cti.Connector.prototype = {
             cause: "",
             status: Cti.CALL_STATUS.RINGING,
             direction: Cti.DIRECTION.IN,
-            destination: call_data.Dst,
-            destinationName: call_data.DstName,
-            source: call_data.Src,
-            sourceName: call_data.SrcName
+            destination: call_data.local,
+            destinationName: call_data.local_name,
+            source: call_data.remote,
+            sourceName: call_data.remote_name
         };
 
         this._setCall(callId, call);
@@ -837,7 +815,7 @@ Cti.Connector.prototype = {
         if (this._hasCall(callId)) {
             // call from UI
             call = this._getCall(callId);
-            // update unique XMPP call ID
+            // update unique call ID
             call.cid = call_data.Id;
             call.status = Cti.CALL_STATUS.RINGING;
             this._setCall(callId, call);
@@ -849,10 +827,10 @@ Cti.Connector.prototype = {
                 cause: "",
                 status: Cti.CALL_STATUS.RINGING,
                 direction: Cti.DIRECTION.OUT,
-                destination: call_data.Dst,
-                destinationName: call_data.DstName,
-                source: call_data.Src,
-                sourceName: call_data.SrcName
+                destination: call_data.remote,
+                destinationName: call_data.remote_name,
+                source: call_data.local,
+                sourceName: call_data.local_name
             };
 
             this._setCall(callId, call);
@@ -892,7 +870,7 @@ Cti.Connector.prototype = {
         
         this._handleCallOnHold(callId, call_data);
     },
-    _handleCallOnHold: function (callId, call_data) {
+    _handleCallOnHold: function (callId) {
         if (!this._hasCall(callId)) {
             return;
         }
@@ -1062,7 +1040,7 @@ Cti.Connector.prototype = {
                 response = JSON.parse(xhr.responseText);
             }
 
-            if (xhr.status === 200) {
+            if (xhr.status < 400) {
                 config.success(response);
             } else {
                 config.failure(xhr.status, response);
@@ -1129,23 +1107,6 @@ Cti.Connector.prototype = {
             result[node.nodeName] = text;
         }
         return result;
-    },
-    // Call direction 
-    _getCallDirection: function (call_data) {
-        
-        if (!call_data.SrcId) {
-            return Cti.DIRECTION.IN;
-        }
-
-        if (!call_data.DstId) {
-            return Cti.DIRECTION.OUT;
-        }
-
-        if (call_data.SrcId == this._getParam('xmpp_username')) {
-            return Cti.DIRECTION.OUT;
-        }
-
-        return Cti.DIRECTION.IN;
     },
     // strip special charactes from numsageber
     _formatE164: function (number) {
@@ -1254,18 +1215,5 @@ Cti.Connector.prototype = {
         var calls = this._getCalls();
         delete calls[callId];
         this._setCalls(calls);
-    },
-    _serialize: function (obj) {
-        var str = [];
-        for (var p in obj) {
-            if (obj.hasOwnProperty(p)) {
-                str.push(encodeURIComponent(p) + "=" + encodeURIComponent(obj[p]));
-            }
-        }
-        return str.join("&");
-    },
-    // this need to be integer
-    _uniqid: function () {
-        return new Date().getTime();
     }
 };

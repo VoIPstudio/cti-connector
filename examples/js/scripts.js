@@ -20,6 +20,10 @@ $().ready(function () {
     $('#call-outbound').click(function() {
         platform.call($('#phone_number').val());
     });
+
+    $('#call-answer').click(function() {
+        platform.answer();
+    });
     
     $('#call-terminate').click(function() {
         platform.terminate($(this).attr('call-id'));

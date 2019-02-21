@@ -78,7 +78,7 @@ if (typeof Strophe != "undefined") {
 Cti.Connector = function (options) {
     this.connected = false;
 
-    this.apiEndpoint = "https://l7api.com/v1/voipstudio";
+    this.apiEndpoint = "https://l7api.com/v1.1/voipstudio";
     
     // calbback
     this.callbacks = {
@@ -164,6 +164,10 @@ Cti.Connector.prototype = {
                 success: function(response) {
 
                     self.log("ajax login SUCCESS");
+
+                    self._setParam('user_id', credentials.user_id);
+                    self._setParam('user_token', credentials.user_token);
+
                     // reset call list
                     self._setCalls({});
                     // sucessfull login
@@ -232,6 +236,63 @@ Cti.Connector.prototype = {
             name: Cti.EVENT.LOGGED_OUT,
             message: 'User has been successfully logged out.'
         });
+    },
+    answer: function() {
+        var self = this;
+
+        if (!this.isConnected()) {
+            this._sendErrorEvent("Connector need to be connected first.");
+            return;
+        }
+
+        var calls = this._getCalls();
+
+        var callIdToAnswer = null;
+
+        for (var id in calls) {
+            var call = calls[id];
+
+            if (call.direction == Cti.DIRECTION.IN && call.status == Cti.CALL_STATUS.RINGING) {
+                callIdToAnswer = id;
+            }
+        }
+
+        if (!callIdToAnswer) {
+            self._sendErrorEvent("No ringing inbound calls to answer.");
+            return;
+        }
+
+        self._corsRequest({
+            method: 'PATCH',
+            url: '/calls/' + callIdToAnswer,
+            credentials: { user_id: self._getParam('user_id'), user_token: self._getParam('user_token') },
+            data: {
+                state: 'CONNECTED'
+            },
+            success: function() {
+                self.log("Call Id ["+callIdToAnswer+"] answered");
+            },
+            failure: function(status, response) {
+
+                var errors = [];
+
+                if (response.message) {
+                    errors.push(response.message);
+                }
+
+                if (response.errors) {
+                    for (var i = 0; i < response.errors.length; i++) {
+                        errors.push(response.errors[i].field + ': ' + response.errors[i].message);
+                    }
+                }
+
+                var error = (errors.length > 0) ? errors.join(" ") : "Unknown API Error";
+
+                self._sendErrorEvent(error);
+            }
+        });
+
+        
     },
     call: function (destination) {
 

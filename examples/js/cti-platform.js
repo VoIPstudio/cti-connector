@@ -44,6 +44,11 @@ Cti.Platform.prototype = {
 
         connector.logout();
     },
+    answer: function () {
+        document.title = "Answering";
+
+        connector.answer();
+    },
     call: function (destination) {
         document.title = "Connecting";
 
@@ -105,6 +110,7 @@ Cti.Platform.prototype = {
         if (event.name === Cti.EVENT.RINGING) {
             $('#disconnect').prop('disabled', true);
             $('#call-outbound').prop('disabled', true);
+            $('#call-answer').show();
 
             // Incoming call
             if (event.call.direction === Cti.DIRECTION.IN) {
@@ -144,6 +150,7 @@ Cti.Platform.prototype = {
             $('#toolbar-form').show();
             // hide call form
             $('#outboundcall-form').hide();
+            $('#call-answer').hide();
 
             $('#call-terminate, #call-transfer').attr('call-id', event.call.id);
         }
@@ -178,6 +185,7 @@ Cti.Platform.prototype = {
             $('#outboundcall-form').show();
             $('#toolbar-form').hide();
             $('#transfer-table').hide();
+            $('#call-answer').hide();
 
             $('#call-terminate, #call-transfer').removeAttr('call-id');
 

@@ -75,7 +75,7 @@ Cti.Connector = function (options) {
 
     this.connected = false;
 
-    this.apiEndpoint = "https://api.l7dev.co.cc/v1.1/voipstudio";
+    this.apiEndpoint = "https://l7api.com/v1.1/voipstudio";
     
     // calbback
     this.callbacks = {

@@ -110,12 +110,12 @@ Cti.Platform.prototype = {
         if (event.name === Cti.EVENT.RINGING) {
             $('#disconnect').prop('disabled', true);
             $('#call-outbound').prop('disabled', true);
-            $('#call-answer').show();
 
             // Incoming call
             if (event.call.direction === Cti.DIRECTION.IN) {
 
                 document.title = "Incoming";
+                $('#call-answer').show();
                 $('#status')
                         .html("Incoming call from " + event.call.source)
                         .removeClass()

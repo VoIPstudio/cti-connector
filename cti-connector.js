@@ -331,6 +331,16 @@ Cti.Connector.prototype = {
             if (status == 400) {
                 me._sendErrorEvent(me.getApiError(response));
             } else {
+
+                var dtError = new Date() / 1;
+
+                var diff = dtError - dt;
+
+                if (diff < 1000) {
+                    call.cause = 'SIP Endpoint not found';
+                } else {
+                    call.cause = 'SIP Endpoint rejected call';
+                }
                 me._sendEvent({
                     name: Cti.EVENT.CANCEL,
                     call: call

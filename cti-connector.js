@@ -68,23 +68,25 @@ var Cti = {
 
 
 Cti.Connector = function (options) {
+    var me = this;
+
     if (typeof SIP == "undefined") {
         console.error('SIP dependency missing');
         return;
     }
 
-    this.connected = false;
+    me.connected = false;
 
     this.apiEndpoint = "https://l7api.com/v1.1/voipstudio";
     
     // calbback
-    this.callbacks = {
+    me.callbacks = {
         onMessage: options.onMessage
     };
 
-    if (this._hasActiveConnection()) {
+    if (me._hasActiveConnection()) {
         // _reconnect
-        this._reconnect();
+        me._reconnect();
     }
 };
 
@@ -93,6 +95,7 @@ Cti.Connector.prototype = {
     ua: null,
     subscriptions: {},
     calls: {},
+    keepAliveTimer: null,
 
     /**
      * Returns boolean true if the client is currently connected.
@@ -108,13 +111,13 @@ Cti.Connector.prototype = {
     },
     // authentication
     login: function () {
-        
-        if (this.ua && this.ua.isConnected()) {
-            this.log("Already connected");
+        var me = this;
+        if (me.ua && this.ua.isConnected()) {
+            me.log("Already connected");
             // mark as connected
-            this.connected = true;
+            me.connected = true;
             // send LoggedOn event
-            this._sendEvent({
+            me._sendEvent({
                 name: Cti.EVENT.LOGGED_IN,
                 message: 'User is already authenticated.'
             });
@@ -123,7 +126,7 @@ Cti.Connector.prototype = {
         }
         
         if (arguments.length === 0 || arguments.length > 2) {
-            this._sendErrorEvent("Invalid aruments number while login.");
+            me._sendErrorEvent("Invalid aruments number while login.");
             return;
         }
 
@@ -138,7 +141,7 @@ Cti.Connector.prototype = {
             temp = temp.split(":");
         
             if (temp.length !== 2) {
-                this._sendErrorEvent("Invalid API Key format, please enter <user_id:api_key>.");
+                me._sendErrorEvent("Invalid API Key format, please enter <user_id:api_key>.");
                 return;
             }
 
@@ -150,44 +153,39 @@ Cti.Connector.prototype = {
             password = arguments[1];
         
             if (username.length === 0 || password.length === 0) {
-                this._sendErrorEvent("Missing username and/or password.");
+                me._sendErrorEvent("Missing username and/or password.");
                 return;
             }
         }
 
-        // to be used inside callbacks
-        var self = this;
-
         var doLogin = function(credentials) {
-            self._corsRequest({
+            me._corsRequest({
                 method: 'GET',
                 url: '/me',
                 credentials: credentials,
                 success: function(response) {
 
-                    self.log("ajax login SUCCESS");
+                    me.log("ajax login SUCCESS");
 
-                    self._setParam('user_id', credentials.user_id);
-                    self._setParam('user_token', credentials.user_token);
+                    me._setParam('user_id', credentials.user_id);
+                    me._setParam('user_token', credentials.user_token);
 
-                    // reset call list
-                    self._setCalls({});
                     // sucessfull login
-                    self.connected = true;
+                    me.connected = true;
 
                     // send LoggedOn event
-                    self._sendEvent({
+                    me._sendEvent({
                         name: Cti.EVENT.LOGGED_IN,
                         message: 'User has been successfully authenticated.'
                     });
 
                     // connext to SIP server
-                    self._connect(response.data.id, response.data.sip_password, response.data.sip_domain);
+                    me._connect(response.data.id, response.data.sip_password, response.data.sip_domain);
 
                 },
                 failure: function() {
-                    self.log("ajax login FAIL - user data failure");
-                    self._sendErrorEvent("Unable to login - user data failure");
+                    me.log("ajax login FAIL - user data failure");
+                    me._sendErrorEvent("Unable to login - user data failure");
                 }
             });
         };
@@ -195,7 +193,7 @@ Cti.Connector.prototype = {
         if (apiKey) {
             doLogin({ user_id: userId, user_token: apiKey });
         } else {
-            self._corsRequest({
+            me._corsRequest({
                 method: "POST",
                 url: '/login',
                 data: {
@@ -204,55 +202,58 @@ Cti.Connector.prototype = {
                 },
                 success: function(response) {
                     if (!response.user_id || !response.user_token) {
-                        self._sendErrorEvent('user_id and/or user_token missing in API response.');
+                        me._sendErrorEvent('user_id and/or user_token missing in API response.');
                         return;
                     }
 
                     doLogin(response);
                 },
-                failure: function() {
-                    self.log("ajax login FAIL");
-                    self._sendErrorEvent("Unable to login");
+                failure: function(status, response) {
+                    me._sendErrorEvent("Login failed with error: " + me._sendErrorEvent(me.getApiError(response)));
                 }
             });
         }
     },
     logout: function () {
-        if (!this.isConnected()) {
-            this._sendErrorEvent("Connector is not connected.");
+        var me = this;
+
+        if (me.keepAliveTimer) {
+            clearInterval(me.keepAliveTimer);
+        }
+
+        if (!me.isConnected()) {
+            me._sendErrorEvent("Connector is not connected.");
             return;
         }
 
-        this.connected = false;
+        me.connected = false;
 
         // cleanup
-        this._setStorage('l7_connector', {});
+        me._setStorage('l7_connector', {});
 
-        if (this.ua.isConnected()) {
+        if (me.ua.isConnected()) {
             // terminates communications with the remote service provider
-            this.ua.stop();
+            me.ua.stop();
         }
 
         // send LoggedOut event
-        return this._sendEvent({
+        return me._sendEvent({
             name: Cti.EVENT.LOGGED_OUT,
             message: 'User has been successfully logged out.'
         });
     },
     answer: function() {
-        var self = this;
+        var me = this;
 
         if (!this.isConnected()) {
-            this._sendErrorEvent("Connector need to be connected first.");
+            me._sendErrorEvent("Connector need to be connected first.");
             return;
         }
 
-        var calls = this._getCalls();
-
         var callIdToAnswer = null;
 
-        for (var id in calls) {
-            var call = calls[id];
+        for (var id in me.calls) {
+            var call = me.calls[id];
 
             if (call.direction == Cti.DIRECTION.IN && call.status == Cti.CALL_STATUS.RINGING) {
                 callIdToAnswer = id;
@@ -260,164 +261,167 @@ Cti.Connector.prototype = {
         }
 
         if (!callIdToAnswer) {
-            self._sendErrorEvent("No ringing inbound calls to answer.");
+            me._sendErrorEvent("No ringing inbound calls to answer.");
             return;
         }
 
-        self._corsRequest({
-            method: 'PATCH',
-            url: '/calls/' + callIdToAnswer,
-            credentials: { user_id: self._getParam('user_id'), user_token: self._getParam('user_token') },
-            data: {
-                state: 'CONNECTED'
-            },
-            success: function() {
-                self.log("Call Id ["+callIdToAnswer+"] answered");
-            },
-            failure: function(status, response) {
-
-                var errors = [];
-
-                if (response.message) {
-                    errors.push(response.message);
-                }
-
-                if (response.errors) {
-                    for (var i = 0; i < response.errors.length; i++) {
-                        errors.push(response.errors[i].field + ': ' + response.errors[i].message);
-                    }
-                }
-
-                var error = (errors.length > 0) ? errors.join(" ") : "Unknown API Error";
-
-                self._sendErrorEvent(error);
-            }
+        me.apiRequest('PATCH', '/calls/' + callIdToAnswer, {
+            state: 'CONNECTED'
         });
     },
     call: function (destination) {
-
-        if (!this.isConnected()) {
-            this._sendErrorEvent("Connector need to be connected first.");
+        var me = this;
+        if (!me.isConnected()) {
+            me._sendErrorEvent("Connector need to be connected first.");
             return;
         }
 
         if (typeof destination === "undefined") {
-            this._sendErrorEvent("Missing destination parameter");
+            me._sendErrorEvent("Missing destination parameter");
             return;
         }
 
         if (destination.length === 0) {
-            this._sendErrorEvent("Destination number is empty");
+            me._sendErrorEvent("Destination number is empty");
             return;
         }
 
         if (destination.length > 5) {
             // phone number
-            destination = this._formatE164(destination);
-            if (!this._isPhoneNumberValid(destination)) {
-                this._sendErrorEvent("Phone number: " + destination + " has invalid format");
+            destination = me._formatE164(destination);
+            if (!me._isPhoneNumberValid(destination)) {
+                me._sendErrorEvent("Phone number: " + destination + " has invalid format");
                 return;
             }
         } else {
             // extension or spcial internal number
-            if (this._getParam('sip_username') == destination) {
-                this._sendErrorEvent("You are unable to call to yourself.");
+            if (me._getParam('sip_username') == destination) {
+                me._sendErrorEvent("You are unable to call to yourme.");
                 return;
             }
         }
 
-        this.apiRequest('POST', '/calls', {
-            to: destination.replace(/^\+/,"")
+        destination = destination.replace(/^\+/,"");
+
+        var dt = new Date() / 1;
+
+        var callId = 'initial-' + dt;
+
+        var call = {
+            id: callId,
+            destination: destination,
+            direction: Cti.DIRECTION.OUT,
+            status: Cti.CALL_STATUS.INITIAL
+
+        };
+
+        me._sendEvent({
+            name: Cti.EVENT.INITIAL,
+            call: call
+        });
+
+        me.apiRequest('POST', '/calls', {
+            to: destination
+        }, function() {
+
+            me._sendEvent({
+                name: Cti.EVENT.ACCEPTED,
+                call: call
+            });
+
+        }, function() {
+            me._sendEvent({
+                name: Cti.EVENT.CANCEL,
+                call: call
+            });
         });
     },
     terminate: function (callId) {
-
-        if (!this.isConnected()) {
-            this._sendErrorEvent("Connector need to be connected first.");
+        var me = this;
+        if (!me.isConnected()) {
+            me._sendErrorEvent("Connector need to be connected first.");
             return;
         }
 
         if (typeof callId === "undefined") {
-            this._sendErrorEvent("Missing call ID parameter");
+            me._sendErrorEvent("Missing call ID parameter");
             return;
         }
 
-        if (!this._hasCall(callId)) {
-            this._sendErrorEvent("Call with ID: " + callId + " could not be found.");
+        if (!me.calls[callId]) {
+            me._sendErrorEvent("Call with ID: " + callId + " could not be found.");
             return;
         }
 
-        var call = this._getCall(callId, true);
+        var call = me.calls[callId];
 
         // we can terminate calls only with status CONNECTED, ON_HOLD
         if ([Cti.CALL_STATUS.CONNECTED, Cti.CALL_STATUS.ON_HOLD].indexOf(call.status) == -1) {
-            this._sendInfoEvent("Call with STATUS: " + call.status + " cannot be terminated.");
+            me._sendInfoEvent("Call with STATUS: " + call.status + " cannot be terminated.");
             return;
         }
 
-        this.apiRequest('DELETE', '/calls/' + callId);
+        me.apiRequest('DELETE', '/calls/' + callId);
     },
     transfer: function (callId, destination) {
-
-        if (!this.isConnected()) {
-            this._sendErrorEvent("Connector need to be connected first.");
+        var me = this;
+        if (!me.isConnected()) {
+            me._sendErrorEvent("Connector need to be connected first.");
             return;
         }
 
         if (typeof callId === "undefined") {
-            this._sendErrorEvent("Missing call ID parameter");
+            me._sendErrorEvent("Missing call ID parameter");
             return;
         }
 
         if (typeof destination === "undefined") {
-            this._sendErrorEvent("Missing destination parameter");
+            me._sendErrorEvent("Missing destination parameter");
             return;
         }
 
-        if (!this._hasCall(callId)) {
-            this._sendErrorEvent("Call with ID: " + callId + " could not be found.");
+        if (!me.calls[callId]) {
+            me._sendErrorEvent("Call with ID: " + callId + " could not be found.");
             return;
         }
 
-        var call = this._getCall(callId, true);
+        var call = me.calls[callId];
 
         // we can transfer calls only with status COONNECTED
         if (call.status !== Cti.CALL_STATUS.CONNECTED) {
-            this._sendInfoEvent("Call with STATUS: " + call.status + " cannot be transfered.");
+            me._sendInfoEvent("Call with STATUS: " + call.status + " cannot be transfered.");
             return;
         }
 
         if (destination.length === 0) {
-            this._sendErrorEvent("Destination number is empty");
+            me._sendErrorEvent("Destination number is empty");
             return;
         }
 
         if (destination.length > 5) {
             // phone number
-            destination = this._formatE164(destination);
-            if (!this._isPhoneNumberValid(destination)) {
-                this._sendErrorEvent("Phone number: " + destination + " has invalid format");
+            destination = me._formatE164(destination);
+            if (!me._isPhoneNumberValid(destination)) {
+                me._sendErrorEvent("Phone number: " + destination + " has invalid format");
                 return;
             }
         } else {
             // extension
-            if (!this._isExtensionValid(destination)) {
-                this._sendErrorEvent("Extension number: " + destination + " has invalid format");
+            if (!me._isExtensionValid(destination)) {
+                me._sendErrorEvent("Extension number: " + destination + " has invalid format");
                 return;
             }
 
-            if (this._getParam('sip_username') == destination) {
-                this._sendErrorEvent("You are unable to transfer call to yourself.");
+            if (me._getParam('sip_username') == destination) {
+                me._sendErrorEvent("You are unable to transfer call to yourme.");
                 return;
             }
         }
 
         // update call details
-        call.destination = destination;
+        me.calls[callId].destination = destination;
 
-        this._setCall(callId, call);
-
-        this.apiRequest('PATCH', '/calls/' + callId, {
+        me.apiRequest('PATCH', '/calls/' + callId, {
             dst: destination
         });
     },
@@ -480,35 +484,25 @@ Cti.Connector.prototype = {
 
         return subscribe;
     },
-    apiRequest: function(method, url, data, cb) {
-        var self = this;
+    apiRequest: function(method, url, data, successCb, failureCb) {
+        var me = this;
 
         var cfg = {
             method: method,
             url: url,
-            credentials: { user_id: self._getParam('user_id'), user_token: self._getParam('user_token') },
+            credentials: { user_id: me._getParam('user_id'), user_token: me._getParam('user_token') },
             success: function() {
-                if (typeof cb == 'function') {
-                    cb();
+                if (typeof successCb == 'function') {
+                    successCb();
                 }
             },
             failure: function(status, response) {
 
-                var errors = [];
-
-                if (response.message) {
-                    errors.push(response.message);
+                if (typeof failureCb == 'function') {
+                    failureCb();
+                } else {
+                    me._sendErrorEvent(me.getApiError(response));
                 }
-
-                if (response.errors) {
-                    for (var i = 0; i < response.errors.length; i++) {
-                        errors.push(response.errors[i].field + ': ' + response.errors[i].message);
-                    }
-                }
-
-                var error = (errors.length > 0) ? errors.join(" ") : "Unknown API Error";
-
-                self._sendErrorEvent(error);
             }
         };
 
@@ -516,7 +510,23 @@ Cti.Connector.prototype = {
             cfg.data = data;
         }
 
-        self._corsRequest(cfg);
+        me._corsRequest(cfg);
+    },
+    getApiError: function(response) {
+
+        var errors = [];
+
+        if (response.message) {
+            errors.push(response.message);
+        }
+
+        if (response.errors) {
+            for (var i = 0; i < response.errors.length; i++) {
+                errors.push(response.errors[i].field + ': ' + response.errors[i].message);
+            }
+        }
+
+        return (errors.length > 0) ? errors.join(" ") : "Unknown API Error";
     },
     parseNotify: function(notify) {
         var me = this;
@@ -601,45 +611,45 @@ Cti.Connector.prototype = {
                 }
             }
 
+            var ctiCall = {
+                id: call.id,
+                cid: call.dialog_id,
+                cause: "",
+                direction: (call.direction == "receiver") ? Cti.DIRECTION.IN : Cti.DIRECTION.OUT,
+                destination: (call.direction == "receiver") ? call.local : call.remote,
+                destinationName: (call.direction == "receiver") ? call.local_name : call.remote_name,
+                source: (call.direction == "receiver") ? call.remote : call.local,
+                sourceName: (call.direction == "receiver") ?  call.remote_name : call.local_name 
+            };
 
-            var callId = call.id;
+            var event;
 
-            me.calls[callId] = call;
-
-            if (call.direction == "receiver") {
-                if (call.state == 'confirmed') {
-                    this._handleInboundCallConnected(callId, call);
-                }
-
-                if (call.state == 'early') {
-                    this._handleInboundCallRinging(callId, call);
-                }
-
-                if (call.state == 'onhold') {
-                    this._handleInboundCallOnHold(callId, call);
-                }
-
-                if (call.state == 'terminated') {
-                    this._handleInboundCallHangUp(callId, call);
-                }                
-            } else {
-
-                if (call.state == 'confirmed') {
-                    this._handleOutboundCallConnected(callId, call);
-                }
-
-                if (call.state == 'early') {
-                    this._handleOutboundCallRinging(callId, call);
-                }
-
-                if (call.state == 'onhold') {
-                    this._handleOutboundCallOnHold(callId, call);
-                }
-
-                if (call.state == 'terminated') {
-                    this._handleOutboundCallHangUp(callId, call);
-                }
+            if (call.state == 'confirmed') {
+                ctiCall.status = Cti.CALL_STATUS.CONNECTED;
+                event = Cti.EVENT.CONNECTED;
             }
+
+            if (call.state == 'early') {
+                ctiCall.status = Cti.CALL_STATUS.RINGING;
+                event = Cti.EVENT.RINGING;
+            }
+
+            if (call.state == 'onhold') {
+                ctiCall.status = Cti.CALL_STATUS.ON_HOLD;
+                event = Cti.EVENT.ON_HOLD;
+            }
+
+            if (call.state == 'terminated') {
+                ctiCall.status = Cti.CALL_STATUS.HANGUP;
+                event = Cti.EVENT.HANGUP;
+            }
+
+            me.calls[call.id] = ctiCall;
+
+            this._sendEvent({
+                name: event,
+                call: ctiCall
+            });
         }
     },
     // open SIP connection
@@ -712,7 +722,16 @@ Cti.Connector.prototype = {
 
         me.log('re-connecting...');
 
-        me._connect(me._getParam('sip_username'), me._getParam('sip_password'), me._getParam('sip_domain'));
+        me.apiRequest('GET', '/ping', null, function() {
+            me._connect(me._getParam('sip_username'), me._getParam('sip_password'), me._getParam('sip_domain'));
+        }, function() {
+            me._setStorage('l7_connector', {});
+            return me._sendEvent({
+                name: Cti.EVENT.LOGGED_OUT,
+                message: 'User session expired.'
+            });
+        });
+        
     },
     _hasActiveConnection: function () {
         if (this._getParam('sip_username') && this._getParam('sip_password') && this._getParam('sip_domain')) {
@@ -733,290 +752,23 @@ Cti.Connector.prototype = {
 
         me.subscribe('user:' + me._getParam('sip_username'));
 
+        me.keepAliveTimer = setInterval(function() {
+            me.apiRequest('GET', '/ping', null, function() {
+                // do nothing
+            }, function() {
+                me._setStorage('l7_connector', {});
+                return me._sendEvent({
+                    name: Cti.EVENT.LOGGED_OUT,
+                    message: 'User session expired.'
+                });
+            });
+        }, 25000);
+
         // send Ready event
         me._sendEvent({
             name: Cti.EVENT.READY,
             message: "Connection with SIP server has been successfully established."
         });
-    },
-    // Call CONNECTED
-    _handleInboundCallConnected: function (callId, call_data) {
-        this._handleCallConnected(callId, call_data);
-    },
-    _handleOutboundCallConnected: function (callId, call_data) {
-        
-        if (!this._hasCall(callId)) {
-            // for this context calls start with CONNECTED status
-            var special_contexts = ['IVR', 'TEST_CALL', 'CONF', 'VM', 'VM_MAIN', 'PICKUP_PARKED'];
-            if (special_contexts.indexOf(call_data.Context) >= 0) {
-                
-                var call = {
-                    id: callId,
-                    cid: call_data.Id,
-                    cause: "",
-                    status: Cti.CALL_STATUS.CONNECTED,
-                    direction: Cti.DIRECTION.OUT,
-                    destination: call_data.Dst,
-                    destinationName: call_data.DstName,
-                    source: call_data.Src,
-                    sourceName: call_data.SrcName
-                };
-
-                this._setCall(callId, call);
-            }
-        }
-        
-        this._handleCallConnected(callId, call_data);
-    },
-    _handleCallConnected: function (callId, call_data) {
-        if (!this._hasCall(callId)) {
-            return;
-        }
-        var call = this._getCall(callId);
-
-        // update call status
-        call.cid = call_data.Id;
-        call.status = Cti.CALL_STATUS.CONNECTED;
-        this._setCall(callId, call);
-
-        // send CONNECTED event
-        this._sendEvent({
-            name: Cti.EVENT.CONNECTED,
-            call: call
-        });
-
-    },
-    // Call RINGING
-    _handleInboundCallRinging: function (callId, call_data) {
-        this.log('_handleInboundCallRinging');
-
-        var call = {
-            id: callId,
-            cid: callId,
-            cause: "",
-            status: Cti.CALL_STATUS.RINGING,
-            direction: Cti.DIRECTION.IN,
-            destination: call_data.local,
-            destinationName: call_data.local_name,
-            source: call_data.remote,
-            sourceName: call_data.remote_name
-        };
-
-        this._setCall(callId, call);
-
-        // send Ringing event
-        this._sendEvent({
-            name: Cti.EVENT.RINGING,
-            call: call
-        });
-    },
-    _handleOutboundCallRinging: function (callId, call_data) {
-        var call;
-        if (this._hasCall(callId)) {
-            // call from UI
-            call = this._getCall(callId);
-            // update unique call ID
-            call.cid = call_data.Id;
-            call.status = Cti.CALL_STATUS.RINGING;
-            this._setCall(callId, call);
-        } else {
-            // call from Softphone
-            call = {
-                id: callId,
-                cid: call_data.Id,
-                cause: "",
-                status: Cti.CALL_STATUS.RINGING,
-                direction: Cti.DIRECTION.OUT,
-                destination: call_data.remote,
-                destinationName: call_data.remote_name,
-                source: call_data.local,
-                sourceName: call_data.local_name
-            };
-
-            this._setCall(callId, call);
-        }
-
-        // send RINGING event
-        this._sendEvent({
-            name: Cti.EVENT.RINGING,
-            call: call
-        });
-    },
-    // Call ON HOLD
-    _handleInboundCallOnHold: function (callId, call_data) {
-        this._handleCallOnHold(callId, call_data);
-    },
-    _handleOutboundCallOnHold: function (callId, call_data) {
-        
-        if (!this._hasCall(callId)) {
-            // for this context calls start with ON_HOLD status
-            if (call_data.Context == 'Queue') {
-                
-                var call = {
-                    id: callId,
-                    cid: call_data.Id,
-                    cause: "",
-                    status: Cti.CALL_STATUS.ON_HOLD,
-                    direction: Cti.DIRECTION.OUT,
-                    destination: call_data.Dst,
-                    destinationName: call_data.DstName,
-                    source: call_data.Src,
-                    sourceName: call_data.SrcName
-                };
-
-                this._setCall(callId, call);
-            }
-        }
-        
-        this._handleCallOnHold(callId, call_data);
-    },
-    _handleCallOnHold: function (callId) {
-        if (!this._hasCall(callId)) {
-            return;
-        }
-        var call = this._getCall(callId);
-
-        // update call status
-        call.status = Cti.CALL_STATUS.ON_HOLD;
-        this._setCall(callId, call);
-
-        // send OnHold event
-        this._sendEvent({
-            name: Cti.EVENT.ON_HOLD,
-            call: call
-        });
-    },
-    // Call HANGUP
-    _handleInboundCallHangUp: function (callId, call_data) {
-        this._handleCallHangUp(callId, call_data);
-    },
-    _handleOutboundCallHangUp: function (callId, call_data) {
-        this._handleCallHangUp(callId, call_data);
-    },
-    _handleCallHangUp: function (callId, call_data) {
-        if (!this._hasCall(callId)) {
-            return;
-        }
-        var call = this._getCall(callId);
-
-        // update call status
-        call.status = Cti.CALL_STATUS.HANGUP;
-        call.cause = call_data['Cause-txt'] + " (" + call_data['Cause'] + ")";
-        this._setCall(callId, call);
-
-        // send HANGUP event
-        this._sendEvent({
-            name: Cti.EVENT.HANGUP,
-            call: call
-        });
-    },
-    _handleEndpointInitial: function (callId, call_data) {
-        if (!this._hasCall(callId)) {
-            return;
-        }
-
-        var call = this._getCall(callId),
-                contact = call_data.SrcContact;
-
-        if (call.contacts.indexOf(contact) < 0) {
-            // add 
-            call.contacts.push(contact);
-            this._setCall(callId, call);
-        }
-
-        // if status is not set yet
-        if (!call.status) {
-            // update call status
-            call.status = Cti.CALL_STATUS.INITIAL;
-            this._setCall(callId, call);
-
-            // send RINGING event
-            this._sendEvent({
-                name: Cti.EVENT.INITIAL,
-                call: call
-            });
-        }
-    },
-    _handleEndpointAccepted: function (callId, call_data) {
-        if (!this._hasCall(callId)) {
-            return;
-        }
-
-        var call = this._getCall(callId),
-                call_code = call_data.Cause,
-                contact = call_data.SrcContact;
-
-        if (Cti.CALL_CODE.ACCEPTED != call_code) {
-            this._sendErrorEvent("Unexpected endpoint status: " + call_code);
-            return;
-        }
-
-        // if more than one softphone is registered
-        if (call.contacts.length > 1) {
-            // remove all others contacts
-            call.contacts = new Array(contact);
-        }
-
-        // update call status
-        call.status = Cti.CALL_STATUS.ACCEPTED;
-        this._setCall(callId, call);
-
-        this._sendEvent({
-            name: Cti.EVENT.ACCEPTED,
-            call: call
-        });
-    },
-    _handleEndpointNotAccepted: function (callId, call_data) {
-        if (!this._hasCall(callId)) {
-            return;
-        }
-
-        var call = this._getCall(callId),
-                contact = call_data.SrcContact,
-                index = call.contacts.indexOf(contact);
-
-        // if contact exists
-        if (index > -1) {
-            // remove terminated contact
-            call.contacts.splice(index, 1);
-            this._setCall(callId, call);
-        }
-
-        // if there is no more softphone's reponse that we are waiting for
-        if (call.contacts.length === 0) {
-
-            // update call status
-            call.status = Cti.CALL_STATUS.HANGUP;
-            this._setCall(callId, call);
-
-            // cancel call
-            this._handleEndpointError(callId, "SIP Endpoint returned \"" + call_data['Cause-txt'] + "\" (" + call_data['Cause'] + ")");
-        }
-    },
-    _handleEndpointError: function (callId, cause) {
-        if (!this._hasCall(callId)) {
-            return;
-        }
-
-        var call = this._getCall(callId);
-
-        // update call status
-        call.cause = cause;
-        this._setCall(callId, call);
-
-        this._fireCancelEvent(callId);
-    },
-    _fireCancelEvent: function (callId) {
-        if (!this._hasCall(callId)) {
-            return;
-        }
-        var call = this._getCall(callId);
-        this._sendEvent({
-            name: Cti.EVENT.CANCEL,
-            call: call
-        });
-
-        this._removeCall(callId);
     },
     _corsRequest: function(config) {
         var xhr = this._newXHR();
@@ -1173,47 +925,5 @@ Cti.Connector.prototype = {
             return false;
         }
         return true;
-    },
-    _getCalls: function () {
-        return this._getParam('calls', {});
-    },
-    _setCalls: function (calls) {
-        return this._setParam('calls', calls);
-    },
-    _hasCall: function (callId) {
-        var calls = this._getCalls();
-        if (!(callId in calls)) {
-            return false;
-        }
-        return true;
-    },
-    _getCall: function (callId) {
-        if (!this._hasCall(callId)) {
-            return null;
-        }
-        return this._getCalls()[callId];
-    },
-    _setCall: function (callId, call) {
-        var calls = this._getCalls();
-
-        // old call exists ?
-        if (calls.hasOwnProperty(callId)) {
-            // current call
-            var old_call = calls[callId];
-            if (old_call.status !== call.status) {
-                this.log('Call status changed to: ' + call.status);
-            }
-        }
-        calls[callId] = call;
-        this._setCalls(calls);
-    },
-    _removeCall: function (callId) {
-        if (!this._hasCall(callId)) {
-            return null;
-        }
-
-        var calls = this._getCalls();
-        delete calls[callId];
-        this._setCalls(calls);
     }
 };

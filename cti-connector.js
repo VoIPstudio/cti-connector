@@ -323,17 +323,19 @@ Cti.Connector.prototype = {
         me.apiRequest('POST', '/calls', {
             to: destination
         }, function() {
-
             me._sendEvent({
                 name: Cti.EVENT.ACCEPTED,
                 call: call
             });
-
-        }, function() {
-            me._sendEvent({
-                name: Cti.EVENT.CANCEL,
-                call: call
-            });
+        }, function(status, response) {
+            if (status == 400) {
+                me._sendErrorEvent(me.getApiError(response));
+            } else {
+                me._sendEvent({
+                    name: Cti.EVENT.CANCEL,
+                    call: call
+                });
+            }
         });
     },
     terminate: function (callId) {
@@ -491,15 +493,15 @@ Cti.Connector.prototype = {
             method: method,
             url: url,
             credentials: { user_id: me._getParam('user_id'), user_token: me._getParam('user_token') },
-            success: function() {
+            success: function(response) {
                 if (typeof successCb == 'function') {
-                    successCb();
+                    successCb(response);
                 }
             },
             failure: function(status, response) {
 
                 if (typeof failureCb == 'function') {
-                    failureCb();
+                    failureCb(status, response);
                 } else {
                     me._sendErrorEvent(me.getApiError(response));
                 }
@@ -726,6 +728,9 @@ Cti.Connector.prototype = {
             me._connect(me._getParam('sip_username'), me._getParam('sip_password'), me._getParam('sip_domain'));
         }, function() {
             me._setStorage('l7_connector', {});
+            if (me.keepAliveTimer) {
+                clearInterval(me.keepAliveTimer);
+            }
             return me._sendEvent({
                 name: Cti.EVENT.LOGGED_OUT,
                 message: 'User session expired.'
@@ -752,17 +757,19 @@ Cti.Connector.prototype = {
 
         me.subscribe('user:' + me._getParam('sip_username'));
 
-        me.keepAliveTimer = setInterval(function() {
-            me.apiRequest('GET', '/ping', null, function() {
-                // do nothing
-            }, function() {
-                me._setStorage('l7_connector', {});
-                return me._sendEvent({
-                    name: Cti.EVENT.LOGGED_OUT,
-                    message: 'User session expired.'
+        if (!me.keepAliveTimer) {
+            me.keepAliveTimer = setInterval(function() {
+                me.apiRequest('GET', '/ping', null, function() {
+                    // do nothing
+                }, function() {
+                    me._setStorage('l7_connector', {});
+                    return me._sendEvent({
+                        name: Cti.EVENT.LOGGED_OUT,
+                        message: 'User session expired.'
+                    });
                 });
-            });
-        }, 25000);
+            }, 25000);
+        }
 
         // send Ready event
         me._sendEvent({

@@ -430,6 +430,8 @@ Cti.Connector.prototype = {
             }
         }
 
+        destination = destination.replace(/^\+/,"");
+
         // update call details
         me.calls[callId].destination = destination;
 

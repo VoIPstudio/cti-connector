@@ -77,15 +77,13 @@ Cti.Connector = function (options) {
 
     me.connected = false;
 
-    this.apiEndpoint = "https://l7api.com/v1.1/voipstudio";
+    me.apiEndpoint = "https://l7api.com/v1.1/voipstudio";
     
-    // calbback
     me.callbacks = {
         onMessage: options.onMessage
     };
 
     if (me._hasActiveConnection()) {
-        // _reconnect
         me._reconnect();
     }
 };
@@ -209,7 +207,7 @@ Cti.Connector.prototype = {
                     doLogin(response);
                 },
                 failure: function(status, response) {
-                    me._sendErrorEvent("Login failed with error: " + me._sendErrorEvent(me.getApiError(response)));
+                    me._sendErrorEvent(me.getApiError(response));
                 }
             });
         }
@@ -226,15 +224,17 @@ Cti.Connector.prototype = {
             return;
         }
 
-        me.connected = false;
+        me.apiRequest('POST', '/logout');
 
-        // cleanup
-        me._setStorage('l7_connector', {});
+        me.connected = false;
 
         if (me.ua.isConnected()) {
             // terminates communications with the remote service provider
             me.ua.stop();
         }
+
+        // cleanup
+        me._setStorage('l7_connector', {});
 
         // send LoggedOut event
         return me._sendEvent({

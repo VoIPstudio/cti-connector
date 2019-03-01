@@ -805,13 +805,18 @@ Cti.Connector.prototype = {
                 return;
             }
 
-            var response = '';
+            var response;
 
             if (xhr.responseText) {
-                response = JSON.parse(xhr.responseText);
+                try {
+                    response = JSON.parse(xhr.responseText);
+                } catch (err) {
+                    config.failure(xhr.status, response);
+                    return;
+                }
             }
 
-            if (xhr.status < 400) {
+            if (xhr.status >= 200 && xhr.status < 400) {
                 config.success(response);
             } else {
                 config.failure(xhr.status, response);

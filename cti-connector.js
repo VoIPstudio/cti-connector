@@ -805,13 +805,18 @@ Cti.Connector.prototype = {
                 return;
             }
 
+            if (xhr.status === 0) {
+                config.failure(xhr.status, { message: 'API Connection failure', errors: [] });
+                return;
+            }
+
             var response;
 
             if (xhr.responseText) {
                 try {
                     response = JSON.parse(xhr.responseText);
                 } catch (err) {
-                    config.failure(xhr.status, response);
+                    config.failure(xhr.status, { message: 'Failed to parse API response', errors: [] });
                     return;
                 }
             }

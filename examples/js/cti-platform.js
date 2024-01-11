@@ -10,10 +10,13 @@ Cti.Platform = function () {
             .removeClass()
             .addClass('label label-warning');
 
-    connector = new Cti.Connector({
+    var options = {
         // callback
         onMessage: this.onMessage
-    });
+    };
+
+
+    connector = new Cti.Connector(options);
 };
 
 Cti.Platform.prototype = {
@@ -38,6 +41,9 @@ Cti.Platform.prototype = {
         this.username = username;
 
         connector.login.apply(connector, arguments);
+    },
+    twoFactorAuth: function() {
+        connector.twoFactorAuth.apply(connector, arguments);
     },
     logout: function () {
         this.username = null;
@@ -74,8 +80,11 @@ Cti.Platform.prototype = {
 
         connector.transfer(callId, destination);
     },
+    subscribe: function() {
+        connector.subscribe.apply(connector, arguments);
+    },
     onMessage: function (event) {
-
+        
         Cti.log(event);
 
         if (event.name === Cti.EVENT.READY) {
@@ -91,6 +100,7 @@ Cti.Platform.prototype = {
             $('#login-form').hide();
             $('#disconnect').show();
             $('#outboundcall-form').show();
+            $('#subscribe_footer').show();
         }
 
         if (event.name === Cti.EVENT.INITIAL) {
@@ -205,6 +215,12 @@ Cti.Platform.prototype = {
             alert(event.message);
         }
 
+        if (event.name === Cti.EVENT.TWO_FACTOR_AUTH) {
+            $('#login_email_password').hide();
+            $('#login_two_factor_code').show();
+            $("#two_factor_auth_nonce").val(event.nonce);
+        }
+
         if (event.name === Cti.EVENT.LOGGED_IN) {
             // add code if needed
         }
@@ -220,6 +236,11 @@ Cti.Platform.prototype = {
             $('#login-form').show();
             $('#disconnect').hide();
             $('#outboundcall-form').hide();
+            $('#subscribe_footer').hide();
+        }
+
+        if (event.name === Cti.EVENT.SUBSCRIBED) {
+            $('#subscriptions-list').html(connector.getSubscriptionURIs().join(" | "));
         }
     }
 };

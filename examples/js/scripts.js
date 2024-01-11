@@ -8,7 +8,16 @@ $().ready(function () {
     $('#connect-with-username-password').click(function() {
         platform.login($('#username').val(), $('#password').val());
     });
-    
+
+    $('#two-factor-button').click(function() {
+        platform.twoFactorAuth($('#two_factor_auth_code').val(), $('#two_factor_auth_nonce').val());
+    });
+
+    $('#subscribe-button').click(function() {
+        platform.subscribe($('#subscribe-node').val());
+        $('#subscribe-node').val('');
+    });
+
     $('#connect-with-api-key').click(function() {
         platform.login($('#api_key').val());
     });

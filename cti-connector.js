@@ -10,6 +10,8 @@ var Cti = {
         READY: "READY",
         LOGGED_IN: "LOGGED_IN",
         LOGGED_OUT: "LOGGED_OUT",
+        TWO_FACTOR_AUTH: "TWO_FACTOR_AUTH",
+        SUBSCRIBED: "SUBSCRIBED",
         INITIAL: "INITIAL",
         ACCEPTED: "ACCEPTED",
         RINGING: "RINGING",
@@ -58,8 +60,28 @@ var Cti = {
     },
     log: function (message) {
         if (window.console) {
+
+            var stringify = function(obj) {
+              let cache = [];
+              let str = JSON.stringify(obj, function(key, value) {
+                if (typeof value === "object" && value !== null) {
+                  if (cache.indexOf(value) !== -1) {
+                    // Circular reference found, discard key
+                    return;
+                  }
+                  // Store value in our collection
+                  cache.push(value);
+                }
+                return value;
+              });
+              cache = null; // reset the cache
+              return str;
+            };
+
             if (typeof message === "string") {
                 message = "Cti: " + message;
+            } else {
+                message = "Cti: " + stringify(message);
             }
             console.info(message);
         }
@@ -77,8 +99,8 @@ Cti.Connector = function (options) {
 
     me.connected = false;
 
-    me.apiEndpoint = "https://l7api.com/v1.1/voipstudio";
-    
+    me.apiEndpoint = (options.apiEndpoint) ? options.apiEndpoint : "https://l7api.com/v1.2/voipstudio";
+
     me.callbacks = {
         onMessage: options.onMessage
     };
@@ -128,8 +150,7 @@ Cti.Connector.prototype = {
             return;
         }
 
-        var userId,
-            apiKey,
+        var apiKey,
             username,
             password;
         
@@ -138,13 +159,14 @@ Cti.Connector.prototype = {
             var temp = arguments[0];
             temp = temp.split(":");
         
-            if (temp.length !== 2) {
-                me._sendErrorEvent("Invalid API Key format, please enter <user_id:api_key>.");
+            if (temp.length > 2) {
+                me._sendErrorEvent("Invalid API Key format, please enter <[user_id:]api_key>.");
                 return;
             }
 
-            userId = temp[0];
-            apiKey = temp[1];
+            apiKey = (temp.length == 1) ? temp[0] : temp[1];
+
+            me._setApiToken(apiKey);
         } else {
             // authenticate via login / password
             username = arguments[0],
@@ -154,43 +176,7 @@ Cti.Connector.prototype = {
                 me._sendErrorEvent("Missing username and/or password.");
                 return;
             }
-        }
 
-        var doLogin = function(credentials) {
-            me._corsRequest({
-                method: 'GET',
-                url: '/me',
-                credentials: credentials,
-                success: function(response) {
-
-                    me.log("ajax login SUCCESS");
-
-                    me._setParam('user_id', credentials.user_id);
-                    me._setParam('user_token', credentials.user_token);
-
-                    // sucessfull login
-                    me.connected = true;
-
-                    // send LoggedOn event
-                    me._sendEvent({
-                        name: Cti.EVENT.LOGGED_IN,
-                        message: 'User has been successfully authenticated.'
-                    });
-
-                    // connext to SIP server
-                    me._connect(response.data.id, response.data.sip_password, response.data.sip_domain);
-
-                },
-                failure: function() {
-                    me.log("ajax login FAIL - user data failure");
-                    me._sendErrorEvent("Unable to login - user data failure");
-                }
-            });
-        };
-
-        if (apiKey) {
-            doLogin({ user_id: userId, user_token: apiKey });
-        } else {
             me._corsRequest({
                 method: "POST",
                 url: '/login',
@@ -199,18 +185,76 @@ Cti.Connector.prototype = {
                     password: password
                 },
                 success: function(response) {
+
+                    if (response.nonce) {
+                        me._sendEvent({
+                            name: Cti.EVENT.TWO_FACTOR_AUTH,
+                            message: 'Two factor authentication required.',
+                            nonce: response.nonce
+                        });
+                        return;
+                    }
+
                     if (!response.user_id || !response.user_token) {
                         me._sendErrorEvent('user_id and/or user_token missing in API response.');
                         return;
                     }
 
-                    doLogin(response);
+                    me._setApiToken(response.user_token);
                 },
                 failure: function(status, response) {
                     me._sendErrorEvent(me.getApiError(response));
                 }
             });
         }
+    },
+    twoFactorAuth: function () {
+        var me = this;
+        if (me.ua && this.ua.isConnected()) {
+            me.log("Already connected");
+            // mark as connected
+            me.connected = true;
+            // send LoggedOn event
+            me._sendEvent({
+                name: Cti.EVENT.LOGGED_IN,
+                message: 'User is already authenticated.'
+            });
+
+            return;
+        }
+        
+        if (arguments.length === 0 || arguments.length > 2) {
+            me._sendErrorEvent("Invalid aruments number while login.");
+            return;
+        }
+
+        var authCode = arguments[0],
+            nonce = arguments[1];
+        
+        if (authCode.length === 0 || nonce.length === 0) {
+            me._sendErrorEvent("Missing authCode and/or nonce.");
+            return;
+        }
+
+        me._corsRequest({
+            method: "POST",
+            url: '/login2fa',
+            data: {
+                code: authCode,
+                nonce: nonce
+            },
+            success: function(response) {
+                if (!response.user_id || !response.user_token) {
+                    me._sendErrorEvent('user_id and/or user_token missing in API response.');
+                    return;
+                }
+
+                me._setApiToken(response.user_token);
+            },
+            failure: function(status, response) {
+                me._sendErrorEvent(me.getApiError(response));
+            }
+        });
     },
     logout: function () {
         var me = this;
@@ -467,6 +511,12 @@ Cti.Connector.prototype = {
             this._sendErrorEvent("Invalid node type.");
             return;
         }
+
+        if (!/^[1-9][0-9]+$/.test(node_id)) {
+            this._sendErrorEvent("Invalid node_id format.");
+            return;
+        }
+
         var subscribeNode;
 
         if (node_type == 'user') {
@@ -492,11 +542,25 @@ Cti.Connector.prototype = {
 
         me.subscriptions[subscribeURI] = subscribe;
 
+        me._sendEvent({
+            name: Cti.EVENT.SUBSCRIBED,
+            message: 'Call Event subscription created.',
+            uri: subscribeURI
+        });
+
         subscribe.on('notify', function(notify) { 
             me.parseNotify(notify);
         });
 
         return subscribe;
+    },
+    getSubscriptionURIs: function() {
+        var me = this,
+            uris = [];
+        for (var uri in me.subscriptions) {
+            uris.push(uri);
+        }
+        return uris;
     },
     apiRequest: function(method, url, data, successCb, failureCb) {
         var me = this;
@@ -504,7 +568,7 @@ Cti.Connector.prototype = {
         var cfg = {
             method: method,
             url: url,
-            credentials: { user_id: me._getParam('user_id'), user_token: me._getParam('user_token') },
+            apiToken: me._getParam('apiToken'),
             success: function(response) {
                 if (typeof successCb == 'function') {
                     successCb(response);
@@ -666,6 +730,38 @@ Cti.Connector.prototype = {
             });
         }
     },
+    _setApiToken: function(apiToken) {
+        var me = this;
+
+        me._corsRequest({
+            method: 'GET',
+            url: '/me',
+            apiToken: apiToken,
+            success: function(response) {
+
+                me.log("ajax login SUCCESS");
+
+                me._setParam('apiToken', apiToken);
+
+                // sucessfull login
+                me.connected = true;
+
+                // send LoggedOn event
+                me._sendEvent({
+                    name: Cti.EVENT.LOGGED_IN,
+                    message: 'User has been successfully authenticated.'
+                });
+
+                // connext to SIP server
+                me._connect(response.data.id, response.data.sip_password, response.data.sip_domain);
+
+            },
+            failure: function() {
+                me.log("ajax login FAIL - user data failure");
+                me._sendErrorEvent("Unable to login - user data failure");
+            }
+        });
+    },
     // open SIP connection
     _connect: function (sip_username, sip_password, sip_domain) {
         var me = this;
@@ -795,8 +891,8 @@ Cti.Connector.prototype = {
         xhr.open(config.method, this.apiEndpoint + config.url, true);
         xhr.setRequestHeader('Content-Type', 'application/json');
 
-        if (config.credentials) {
-            xhr.setRequestHeader("Authorization", "Basic " + btoa(config.credentials.user_id + ':' + config.credentials.user_token));
+        if (config.apiToken) {
+            xhr.setRequestHeader("X-Auth-Token", config.apiToken);
         }
 
         xhr.onreadystatechange = function () {

@@ -8,6 +8,12 @@
             .mb15 {margin-bottom: 15px;}
             .mt10 {margin-top: 10px;}
             .mb10 {margin-bottom: 10px;}
+            #footer {
+                position: fixed;
+                bottom: 0;
+                width: 100%;
+                padding: 10px;
+            }
         </style>
 
         <link rel="stylesheet" href="css/bootstrap.min.css">
@@ -32,16 +38,22 @@
             </div>
 
             <div id="login-form" class="row">
-                <form class="form-inline">
+                <form class="form-inline" id="login_email_password">
                     <input id="username" type="text" name="username" class="form-control" placeholder="E-mail address" />
                     <input id="password" type="password" name="password" class="form-control" placeholder="Password" />
                     <input id="connect-with-username-password" type="button" value="Connect" class="btn btn-success" />
+                </form>
+
+                <form class="form-inline" id="login_two_factor_code" style="display: none;">
+                    <input id="two_factor_auth_code" type="text" name="two_factor_auth" class="form-control" placeholder="Authentication Code" />
+                    <input type="hidden" id="two_factor_auth_nonce" name="nonce" value="" />
+                    <input id="two-factor-button" type="button" value="Submit" class="btn btn-success" />
                 </form>
                 
                 <p class="mt10 mb10">or</p>
                 
                 <form class="form-inline">
-                    <input id="api_key" type="text" name="api_key" class="form-control" placeholder="User Id:API KEY" />
+                    <input id="api_key" type="text" name="api_key" class="form-control" placeholder="API KEY" />
                     <input id="connect-with-api-key" type="button" value="Connect" class="btn btn-success" />
                 </form>
             </div>
@@ -108,9 +120,21 @@
                 <button id="call-transfer-cancel" type="button" class="btn btn-danger">
                     <span class="glyphicon glyphicon-remove"></span> Cancel
                 </button>
+            </div> <!-- /transfer-table -->
+        </div>
 
+        <div id="footer">
+            <div class="container">
+                <div id="subscribe_footer" class="row" style="display: none;">
+                    <p>Call Event Subscriptions: <span class="label label-default" id="subscriptions-list">None</span>
+                        <form class="form-inline" id="subscribe_form">
+                            <input id="subscribe-node" type="text" name="subscribe_node" class="form-control" placeholder="Node:ID" />
+                            <input id="subscribe-button" type="button" value="Subscribe to Call Events" class="btn btn-success" />
+                        </form>
+                    </p>
+
+                </div>
             </div>
-
         </div>
 
         <script type="text/javascript" src="../sip.min.js"></script>
